@@ -4,9 +4,7 @@
   <img src="banner.png" alt="Narrative Engine" width="700"/>
 </p>
 
-<h1 align="center">🎭 Narrative Engine</h1>
-
-<h3 align="center"><i>The story that watches you back</i></h3>
+<h2 align="center"><i>The story that watches you back</i></h2>
 
 **A real-time story that reads your face through a webcam and rewrites itself as you feel. Smile and the world warms up. Look sad and it turns gentle. No controller, no dialogue choices, just your expression.**
 
