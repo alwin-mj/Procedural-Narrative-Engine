@@ -1,7 +1,7 @@
 <div align="center">
 
 <p align="center">
-  <img src="docs/banner.png" alt="Narrative Engine" width="700"/>
+  <img src="banner.png" alt="Narrative Engine" width="700"/>
 </p>
 
 <h1 align="center">🎭 Narrative Engine</h1>
