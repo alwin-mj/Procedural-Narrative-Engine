@@ -1,40 +1,21 @@
 <div align="center">
 
-```
-██████╗ ██████╗  ██████╗  ██████╗███████╗██████╗ ██╗   ██╗██████╗  █████╗ ██╗
-██╔══██╗██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔══██╗██║   ██║██╔══██╗██╔══██╗██║
-██████╔╝██████╔╝██║   ██║██║     █████╗  ██║  ██║██║   ██║██████╔╝███████║██║
-██╔═══╝ ██╔══██╗██║   ██║██║     ██╔══╝  ██║  ██║██║   ██║██╔══██╗██╔══██║██║
-██║     ██║  ██║╚██████╔╝╚██████╗███████╗██████╔╝╚██████╔╝██║  ██║██║  ██║███████╗
-╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+<p align="center">
+  <img src="docs/banner.png" alt="Narrative Engine" width="700"/>
+</p>
 
-     ███╗   ██╗ █████╗ ██████╗ ██████╗  █████╗ ████████╗██╗██╗   ██╗███████╗
-     ████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██║██║   ██║██╔════╝
-     ██╔██╗ ██║███████║██████╔╝██████╔╝███████║   ██║   ██║██║   ██║█████╗
-     ██║╚██╗██║██╔══██║██╔══██╗██╔══██╗██╔══██║   ██║   ██║╚██╗ ██╔╝██╔══╝
-     ██║ ╚████║██║  ██║██║  ██║██║  ██║██║  ██║   ██║   ██║ ╚████╔╝ ███████╗
-     ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═══╝  ╚══════╝
-
-                 ███████╗███╗   ██╗ ██████╗ ██╗███╗   ██╗███████╗
-                 ██╔════╝████╗  ██║██╔════╝ ██║████╗  ██║██╔════╝
-                 █████╗  ██╔██╗ ██║██║  ███╗██║██╔██╗ ██║█████╗
-                 ██╔══╝  ██║╚██╗██║██║   ██║██║██║╚██╗██║██╔══╝
-                 ███████╗██║ ╚████║╚██████╔╝██║██║ ╚████║███████╗
-                 ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝╚══════╝
-```
-
-<h1 align="center">🎭 Procedural Narrative Engine</h1>
+<h1 align="center">🎭 Narrative Engine</h1>
 
 <h3 align="center"><i>The story that watches you back</i></h3>
 
 **A real-time story that reads your face through a webcam and rewrites itself as you feel. Smile and the world warms up. Look sad and it turns gentle. No controller, no dialogue choices, just your expression.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![OpenCV](https://img.shields.io/badge/Vision-OpenCV-green.svg)](https://opencv.org/)
-[![FER](https://img.shields.io/badge/Emotion-FER-red.svg)](https://github.com/justinshenk/fer)
-[![DeepFace](https://img.shields.io/badge/Fallback-DeepFace-purple.svg)](https://github.com/serengil/deepface)
-[![Runs](https://img.shields.io/badge/Runs-100%25%20Local-orange.svg)]()
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org/)
+[![FER](https://img.shields.io/badge/Emotion-FER-FF4EC7?style=for-the-badge)](https://github.com/justinshenk/fer)
+[![DeepFace](https://img.shields.io/badge/Fallback-DeepFace-8C5AFF?style=for-the-badge)](https://github.com/serengil/deepface)
+[![Local](https://img.shields.io/badge/Runs-100%25%20Local-FF9F3C?style=for-the-badge)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-00D2FF?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 <br/>
 
@@ -50,7 +31,7 @@
 
 ---
 
-## The Idea in One Sentence
+## 💡 The Idea in One Sentence
 
 The AI Director watches your face, classifies your mood in real time, and uses it to choose which version of each story scene you see, while the background, particles, and mood of the world shift to match.
 
@@ -58,7 +39,7 @@ No buttons to press. No menus. Just react.
 
 ---
 
-## Why This Exists
+## 🎯 Why This Exists
 
 Most interactive stories ask you to *tell* them what you want through menus, dialogue trees, or button presses. But the strongest reactions are the ones you never type.
 
@@ -71,7 +52,7 @@ This project explores a different input: **your emotional state**.
 
 ---
 
-## How It Works
+## ⚙️ How It Works
 
 ```
 ┌──────────────┐     ┌────────────────────────────────────────────────┐
@@ -115,7 +96,7 @@ This project explores a different input: **your emotional state**.
 
 ---
 
-## Key Specifications
+## 📊 Key Specifications
 
 | Parameter | Value |
 |-----------|-------|
@@ -133,7 +114,7 @@ This project explores a different input: **your emotional state**.
 
 ---
 
-## Emotion Mapping
+## 🎨 Emotion Mapping
 
 Detectors report many raw emotions. The engine folds them into four story moods.
 
@@ -146,7 +127,7 @@ Detectors report many raw emotions. The engine folds them into four story moods.
 
 ---
 
-## Features
+## ✨ Features
 
 | Feature | Detail |
 |---------|--------|
@@ -161,7 +142,7 @@ Detectors report many raw emotions. The engine folds them into four story moods.
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 Procedural-Narrative-Engine/
@@ -184,7 +165,7 @@ Procedural-Narrative-Engine/
 
 ---
 
-## Installation
+## 🚀 Installation
 
 ### Requirements
 
@@ -213,7 +194,7 @@ python simple_ai_director.py
 
 ---
 
-## Controls
+## 🎮 Controls
 
 | Key | Action |
 |-----|--------|
@@ -223,7 +204,7 @@ python simple_ai_director.py
 
 ---
 
-## Playing
+## 🕹️ Playing
 
 1. Sit in front of the webcam with your face clearly visible
 2. Press **S** to begin
@@ -234,7 +215,7 @@ python simple_ai_director.py
 
 ---
 
-## Custom Character (Optional)
+## 🧍 Custom Character (Optional)
 
 Place transparent PNG frames here to replace the default glowing orb:
 
@@ -249,7 +230,7 @@ Frames are loaded in alphabetical order and resized to 160 × 160.
 
 ---
 
-## Writing Your Own Story
+## ✍️ Writing Your Own Story
 
 Edit the `SCENES` list in `simple_ai_director.py`. Every scene needs one line per mood:
 
@@ -266,7 +247,7 @@ The engine handles detection, smoothing, progression, and visuals for you.
 
 ---
 
-## Tuning
+## 🔧 Tuning
 
 | What | Where | Default |
 |------|-------|---------|
@@ -278,7 +259,7 @@ The engine handles detection, smoothing, progression, and visuals for you.
 
 ---
 
-## Known Issues & Fixes
+## 🐞 Known Issues & Fixes
 
 ### "Error: cannot open camera"
 
@@ -306,7 +287,7 @@ The engine handles detection, smoothing, progression, and visuals for you.
 
 ---
 
-## Future Roadmap
+## 🔮 Future Roadmap
 
 - **Voice narration** — text-to-speech that matches the mood of each scene
 - **Branching paths** — multiple routes and endings, not just one line per scene
@@ -317,14 +298,14 @@ The engine handles detection, smoothing, progression, and visuals for you.
 
 ---
 
-## Privacy & Limitations
+## 🔒 Privacy & Limitations
 
 - All processing happens **locally**. No video or images are stored or sent anywhere.
 - Facial emotion recognition is approximate and can misread people, lighting, and camera angles. Treat it as an interaction mechanic, not a measure of how someone truly feels.
 
 ---
 
-## Team
+## 👥 Team
 
 | Name | GitHub |
 |------|--------|
@@ -335,7 +316,7 @@ B.Tech Computer Science & Engineering, Sahrdaya College of Engineering and Techn
 
 ---
 
-## License
+## 📄 License
 
 MIT License — see [LICENSE](LICENSE) for details.
 
@@ -343,7 +324,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Procedural Narrative Engine** — because the best controller is the one you never have to hold.
+**Narrative Engine** — because the best controller is the one you never have to hold.
 
 *Built with Python · OpenCV · FER · DeepFace · NumPy*
 
