@@ -1,10 +1,10 @@
 <div align="center">
 
-<p align="center">
-  <img src="banner.png" alt="Narrative Engine" width="700"/>
-</p>
+<img src="https://capsule-render.vercel.app/api?type=slice&color=0:FF4EC7,50:8C5AFF,100:00D2FF&height=260&section=header&text=NARRATIVE%20ENGINE&fontSize=64&fontColor=ffffff&fontAlignY=40&desc=The%20story%20that%20watches%20you%20back&descSize=22&descAlignY=62&animation=twinkling" width="100%" alt="Narrative Engine"/>
 
-<h2 align="center"><i>The story that watches you back</i></h2>
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&duration=3000&pause=1000&color=FF4EC7&center=true&vCenter=true&width=700&height=50&lines=Smile+%E2%86%92+the+world+warms+up;Look+sad+%E2%86%92+the+story+turns+gentle;Look+surprised+%E2%86%92+a+mystery+begins;No+controller.+Just+your+face." alt="Typing animation of how the story reacts to your face"/>
+
+<br/><br/>
 
 **A real-time story that reads your face through a webcam and rewrites itself as you feel. Smile and the world warms up. Look sad and it turns gentle. No controller, no dialogue choices, just your expression.**
 
@@ -325,5 +325,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 **Narrative Engine** — because the best controller is the one you never have to hold.
 
 *Built with Python · OpenCV · FER · DeepFace · NumPy*
+
+<img src="https://capsule-render.vercel.app/api?type=slice&color=0:00D2FF,50:8C5AFF,100:FF4EC7&height=120&section=footer" width="100%" alt=""/>
 
 </div>
