@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Deque, Dict, Mapping, Tuple
+from typing import Deque, Dict, Mapping, Optional, Tuple
 
 from ..config import MOODS
 
@@ -60,3 +60,62 @@ class EmotionSmoother:
             stable_avg = avg.get("neutral", confidence)
 
         return stable, stable_avg, avg
+
+
+class Ema:
+    """Exponential moving average: ``value = alpha * x + (1 - alpha) * value``."""
+
+    def __init__(self, alpha: float = 0.3, initial: float = 0.0) -> None:
+        if not 0.0 < alpha <= 1.0:
+            raise ValueError("alpha must be in (0, 1]")
+        self.alpha = alpha
+        self.value = initial
+        self._initial = initial
+
+    def update(self, x: float) -> float:
+        self.value = self.alpha * float(x) + (1.0 - self.alpha) * self.value
+        return self.value
+
+    def reset(self) -> None:
+        self.value = self._initial
+
+
+class HysteresisGate:
+    """Stops the mood flipping on small differences.
+
+    The held mood only changes when a different candidate beats it by ``margin`` (in averaged
+    score) for ``hold_frames`` consecutive frames.
+    """
+
+    def __init__(self, margin: float = 0.08, hold_frames: int = 3) -> None:
+        if margin < 0 or hold_frames < 1:
+            raise ValueError("margin must be >= 0 and hold_frames >= 1")
+        self.margin = margin
+        self.hold_frames = hold_frames
+        self.current: Optional[str] = None
+        self._pending: Optional[str] = None
+        self._count = 0
+
+    def reset(self) -> None:
+        self.current = None
+        self._pending = None
+        self._count = 0
+
+    def update(self, candidate: str, avg: Mapping[str, float]) -> str:
+        if self.current is None:
+            self.current = candidate
+            return candidate
+        if candidate == self.current:
+            self._pending, self._count = None, 0
+            return self.current
+        if avg.get(candidate, 0.0) - avg.get(self.current, 0.0) < self.margin:
+            self._pending, self._count = None, 0
+            return self.current
+        if candidate == self._pending:
+            self._count += 1
+        else:
+            self._pending, self._count = candidate, 1
+        if self._count >= self.hold_frames:
+            self.current = candidate
+            self._pending, self._count = None, 0
+        return self.current
