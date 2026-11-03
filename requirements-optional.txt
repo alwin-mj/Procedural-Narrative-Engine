@@ -1,0 +1,4 @@
+# Optional ML emotion backends. Large installs (they pull in TensorFlow).
+# The app still runs without them (Haar smile fallback).
+fer
+deepface

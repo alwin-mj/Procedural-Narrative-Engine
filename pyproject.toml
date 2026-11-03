@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "narrative-engine"
+version = "0.2.0"
+description = "Real-time interactive story that adapts to your facial expression via webcam."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Alwin M J" }, { name = "Alwin John Shajan" }]
+keywords = ["computer-vision", "opencv", "interactive-storytelling", "affective-computing"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "opencv-python>=4.8,<5",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+fer = ["fer"]
+deepface = ["deepface"]
+dev = ["pytest>=7", "pytest-cov", "ruff", "black"]
+
+[project.scripts]
+narrative-engine = "narrative_engine.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+narrative_engine = ["data/stories/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
