@@ -177,6 +177,24 @@ class GameWindow:
                 canvas, mood, (x - 70, y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 1
             )
 
+    def _draw_affect_pad(
+        self, canvas: np.ndarray, x: int, y: int, size: int, valence: float, arousal: float
+    ) -> None:
+        """Small valence (x) / arousal (y) plot with a dot at the current estimate."""
+        cv2.rectangle(canvas, (x, y), (x + size, y + size), (30, 30, 30), -1)
+        cv2.rectangle(canvas, (x, y), (x + size, y + size), (200, 200, 200), 1)
+        cv2.line(canvas, (x + size // 2, y), (x + size // 2, y + size), (90, 90, 90), 1)
+        cv2.line(canvas, (x, y + size // 2), (x + size, y + size // 2), (90, 90, 90), 1)
+        v = max(-1.0, min(1.0, valence))
+        a = max(-1.0, min(1.0, arousal))
+        dx = int(x + (v + 1.0) / 2.0 * size)
+        dy = int(y + (1.0 - (a + 1.0) / 2.0) * size)
+        cv2.circle(canvas, (dx, dy), 5, (0, 255, 255), -1)
+        label = f"V {valence:+.2f}  A {arousal:+.2f}"
+        cv2.putText(
+            canvas, label, (x, y + size + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1
+        )
+
     def _draw_story_box(self, canvas: np.ndarray, story_text: str) -> np.ndarray:
         lines = wrap_text(story_text, 48)
         box_h = 26 * len(lines) + 20
@@ -210,6 +228,8 @@ class GameWindow:
         history: Optional[Sequence[str]] = None,
         walking: bool = False,
         backend: str = "",
+        valence: float = 0.0,
+        arousal: float = 0.0,
     ) -> np.ndarray:
         canvas = self._background(emo)
         self._draw_particles(canvas, emo)
@@ -240,7 +260,7 @@ class GameWindow:
         )
         cv2.putText(
             canvas,
-            "S:start  Q:quit  SPACE:next",
+            "S:start  C:calibrate  SPACE:next  Q:quit",
             (web_x, status_y + 26),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
@@ -257,4 +277,5 @@ class GameWindow:
                 (200, 200, 200),
                 1,
             )
+        self._draw_affect_pad(canvas, web_x, status_y + 62, 80, valence, arousal)
         return canvas

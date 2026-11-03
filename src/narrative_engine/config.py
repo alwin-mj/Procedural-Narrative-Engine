@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
 MOODS: Tuple[str, ...] = ("happy", "uplift", "sad", "neutral")
-BACKENDS: Tuple[str, ...] = ("auto", "fer", "deepface", "haar")
+BACKENDS: Tuple[str, ...] = ("auto", "mediapipe", "fer", "deepface", "haar")
+MOTION_MODES: Tuple[str, ...] = ("face", "frame")
+DEFAULT_MOTION_THRESHOLD = {"face": 0.03, "frame": 7.0}
 LOG_LEVELS: Tuple[str, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 
@@ -23,16 +25,24 @@ class Config:
     window_title: str = "Narrative Engine"
 
     # --- perception ---
-    backend: str = "auto"  # auto = FER -> DeepFace -> Haar, first one available wins
+    backend: str = "auto"  # auto = MediaPipe -> FER -> DeepFace -> Haar, first available wins
+    mediapipe_model: Optional[Path] = None  # None = download/cache face_landmarker.task
     smoothing_buffer: int = 10  # frames kept in the rolling buffer
     smoothing_window: int = 6  # latest frames averaged for the stable mood
-    motion_threshold: float = 7.0  # mean frame difference that counts as "walking"
+    hysteresis_margin: float = 0.08  # new mood must beat the held mood by this much...
+    hysteresis_frames: int = 3  # ...for this many consecutive frames before switching
+    affect_smoothing: float = 0.3  # EMA factor for valence/arousal (1 = no smoothing)
+    calibrate_on_start: bool = True  # neutral-face calibration the first time you press S
+    calibration_s: float = 3.0  # how long to hold a neutral face
+    motion_mode: str = "face"  # "face" = face-box movement, "frame" = whole-frame difference
+    motion_threshold: Optional[float] = None  # None = default for the chosen motion_mode
 
     # --- director ---
     advance_interval_s: float = 3.5  # seconds between automatic scene changes
     min_confidence: float = 0.25  # minimum stable confidence to auto-advance
     reaction_min_confidence: float = 0.20  # minimum confidence to show a mood-shift line
     reaction_display_s: float = 2.0  # how long the "A shift: ..." prefix stays visible
+    mood_dwell_s: float = 0.8  # a mood must hold this long before it counts as a "shift"
     happy_bias: bool = True  # gently steer neutral/sad moods toward warmer scenes
     story_path: Optional[Path] = None  # None = bundled story
 
@@ -64,8 +74,23 @@ class Config:
             raise ValueError("min_confidence must be in [0, 1]")
         if not 0.0 <= self.reaction_min_confidence <= 1.0:
             raise ValueError("reaction_min_confidence must be in [0, 1]")
-        if self.motion_threshold < 0:
+        if self.motion_mode not in MOTION_MODES:
+            raise ValueError(f"motion_mode must be one of {MOTION_MODES}, got {self.motion_mode!r}")
+        if self.motion_threshold is not None and self.motion_threshold < 0:
             raise ValueError("motion_threshold must be >= 0")
+        if self.hysteresis_margin < 0 or self.hysteresis_frames < 1:
+            raise ValueError("hysteresis_margin must be >= 0 and hysteresis_frames >= 1")
+        if not 0.0 < self.affect_smoothing <= 1.0:
+            raise ValueError("affect_smoothing must be in (0, 1]")
+        if self.calibration_s <= 0 or self.mood_dwell_s < 0:
+            raise ValueError("calibration_s must be > 0 and mood_dwell_s >= 0")
+
+    @property
+    def resolved_motion_threshold(self) -> float:
+        """The explicit threshold, or the default for the chosen motion mode."""
+        if self.motion_threshold is not None:
+            return self.motion_threshold
+        return DEFAULT_MOTION_THRESHOLD[self.motion_mode]
         if self.history_len < 1:
             raise ValueError("history_len must be >= 1")
 
@@ -83,7 +108,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--backend",
         choices=BACKENDS,
         default=d.backend,
-        help="emotion backend (default: auto = FER -> DeepFace -> Haar)",
+        help="emotion backend (default: auto = MediaPipe -> FER -> DeepFace -> Haar)",
+    )
+    p.add_argument(
+        "--mp-model",
+        type=Path,
+        default=None,
+        help="path to face_landmarker.task (skips the one-time download)",
     )
     p.add_argument("--story", type=Path, default=None, help="path to a story JSON file")
     p.add_argument("--sprites", type=Path, default=None, help="folder of PNG frames for the player")
@@ -97,7 +128,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="confidence needed to advance",
     )
     p.add_argument(
-        "--motion-threshold", type=float, default=d.motion_threshold, help="walking sensitivity"
+        "--motion-mode",
+        choices=MOTION_MODES,
+        default=d.motion_mode,
+        help="walking detection: face-box movement (default) or whole-frame difference",
+    )
+    p.add_argument(
+        "--motion-threshold",
+        type=float,
+        default=None,
+        help="walking sensitivity (default depends on --motion-mode)",
+    )
+    p.add_argument(
+        "--no-calibration",
+        action="store_true",
+        help="skip the neutral-face calibration on start",
     )
     p.add_argument(
         "--no-happy-bias",
@@ -115,11 +160,14 @@ def config_from_args(argv: Optional[Sequence[str]] = None) -> Config:
         width=a.width,
         height=a.height,
         backend=a.backend,
+        mediapipe_model=a.mp_model,
         story_path=a.story,
         sprites_dir=a.sprites,
         advance_interval_s=a.interval,
         min_confidence=a.min_confidence,
+        motion_mode=a.motion_mode,
         motion_threshold=a.motion_threshold,
+        calibrate_on_start=not a.no_calibration,
         happy_bias=not a.no_happy_bias,
         log_level=a.log_level,
     )

@@ -1,26 +1,37 @@
-"""Face + emotion detection with an optional-backend fallback chain.
+"""Face + mood detection with an optional-backend fallback chain.
 
-Chain (``backend="auto"``): FER -> DeepFace -> Haar face + smile heuristic.
-FER and DeepFace are optional installs; if they are missing the next one takes over,
-so the app always starts.
+Chain (``backend="auto"``): MediaPipe -> FER -> DeepFace -> Haar face + smile heuristic.
+Every ML backend is optional; if one is missing or fails, the next takes over, so the app
+always starts. Each result carries the four story-mood scores *and* continuous
+valence/arousal.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from ..config import MOODS
-from .smoothing import EmotionSmoother, Scores
+from .affect import (
+    baseline_from_samples,
+    circumplex_va,
+    estimate_affect,
+    extract_features,
+    scores_from_affect,
+)
+from .smoothing import Ema, EmotionSmoother, HysteresisGate, Scores
 
 log = logging.getLogger(__name__)
 
 Box = Tuple[int, int, int, int]  # x, y, w, h
 
-# Raw label -> one of the four story moods.
+# Raw label -> one of the four story moods. The story has four mood variants per scene, so the
+# classic 7 emotions are folded down. angry / fear / disgust all land in "sad" (the low-valence
+# bucket); their distinct valence/arousal is still reported through ``Detection.valence/arousal``.
 EMOTION_MAP: Dict[str, str] = {
     "happy": "happy",
     "content": "happy",
@@ -49,9 +60,10 @@ EMOTION_MAP: Dict[str, str] = {
 }
 
 FACE_PAD = 0.12  # padding around the detected face box
-SMILE_NUDGE_FER = 0.70  # FER: nudge neutral -> happy when confidence is below this
+SMILE_NUDGE_FER = 0.70  # FER: nudge unsure neutral -> happy when confidence is below this
 SMILE_NUDGE_DEEPFACE = 0.65
 SMILE_SCORE = 0.55  # happy score assigned when the smile cue fires
+MIN_CALIBRATION_SAMPLES = 10
 
 
 class Detection(NamedTuple):
@@ -61,6 +73,8 @@ class Detection(NamedTuple):
     confidence: float
     box: Optional[Box]
     scores: Scores
+    valence: float = 0.0  # -1 unhappy .. +1 happy
+    arousal: float = 0.0  # calm .. excited
 
 
 def map_emotion(raw: Any) -> str:
@@ -72,6 +86,10 @@ def _empty_scores(neutral: float = 0.0) -> Scores:
     s: Scores = {m: 0.0 for m in MOODS}
     s["neutral"] = neutral
     return s
+
+
+def _no_face() -> Detection:
+    return Detection("neutral", 0.0, None, _empty_scores(neutral=1.0), 0.0, 0.0)
 
 
 def _fold_scores(raw: Mapping[str, float], scale: float = 1.0) -> Scores:
@@ -87,12 +105,23 @@ def _fold_scores(raw: Mapping[str, float], scale: float = 1.0) -> Scores:
 
 
 class EmotionDetector:
-    """Detects the largest face, estimates a mood distribution, and smooths it over time."""
+    """Detects the largest face, estimates mood + valence/arousal, and smooths them over time."""
 
     def __init__(
-        self, backend: str = "auto", smoothing_buffer: int = 10, smoothing_window: int = 6
+        self,
+        backend: str = "auto",
+        smoothing_buffer: int = 10,
+        smoothing_window: int = 6,
+        *,
+        hysteresis_margin: float = 0.08,
+        hysteresis_frames: int = 3,
+        affect_alpha: float = 0.3,
+        mediapipe_model: Optional[Path] = None,
     ) -> None:
         self.smoother = EmotionSmoother(smoothing_buffer, smoothing_window)
+        self.gate = HysteresisGate(hysteresis_margin, hysteresis_frames)
+        self._valence = Ema(affect_alpha)
+        self._arousal = Ema(affect_alpha)
         self.last = "neutral"
         self.last_conf = 0.0
         self.active_backend = "none"  # which backend produced the latest result
@@ -104,22 +133,44 @@ class EmotionDetector:
             cv2.data.haarcascades + "haarcascade_smile.xml"
         )
 
+        self._mp: Any = None
         self._fer: Any = None
         self._deepface: Any = None
-        if backend in ("auto", "fer"):
+        self._baseline: Optional[Dict[str, float]] = None
+        self._calib_samples: Optional[List[Dict[str, float]]] = None
+
+        if backend in ("auto", "mediapipe"):
+            self._mp = self._load_mediapipe(mediapipe_model)
+        # Only load the heavy TensorFlow-based backends when MediaPipe is not doing the job.
+        want_ml = backend in ("fer", "deepface") or (backend == "auto" and self._mp is None)
+        if want_ml and backend in ("auto", "fer"):
             self._fer = self._load_fer()
-        if backend in ("auto", "deepface"):
+        if want_ml and backend in ("auto", "deepface"):
             self._deepface = self._load_deepface()
-        if self._fer is None and self._deepface is None and backend != "haar":
+
+        if backend != "haar" and not (self._mp or self._fer or self._deepface):
             log.warning("No ML emotion backend available; using the Haar smile fallback.")
         log.info(
-            "Detector ready (requested=%s, fer=%s, deepface=%s)",
+            "Detector ready (requested=%s, mediapipe=%s, fer=%s, deepface=%s)",
             backend,
+            self._mp is not None,
             self._fer is not None,
             self._deepface is not None,
         )
 
     # ------------------------------------------------------------------ loading
+    @staticmethod
+    def _load_mediapipe(model_path: Optional[Path]) -> Any:
+        try:
+            from .mediapipe_backend import MediaPipeBackend
+
+            return MediaPipeBackend(model_path)
+        except ImportError as exc:
+            log.info("MediaPipe not installed (%s). Try: pip install -e '.[mediapipe]'", exc)
+        except Exception as exc:  # ModelUnavailable, or a MediaPipe runtime error
+            log.warning("MediaPipe backend unavailable: %s", exc)
+        return None
+
     @staticmethod
     def _load_fer() -> Any:
         try:
@@ -145,6 +196,45 @@ class EmotionDetector:
             log.info("DeepFace not available: %s", exc)
             return None
         return DeepFace
+
+    def close(self) -> None:
+        """Release backend resources."""
+        if self._mp is not None:
+            try:
+                self._mp.close()
+            except Exception as exc:
+                log.debug("MediaPipe close failed: %s", exc)
+
+    # ------------------------------------------------------------------ calibration
+    @property
+    def supports_calibration(self) -> bool:
+        """Calibration needs blendshape features, which only the MediaPipe backend provides."""
+        return self._mp is not None
+
+    @property
+    def calibrated(self) -> bool:
+        return self._baseline is not None
+
+    def begin_calibration(self) -> None:
+        """Start collecting the user's resting (neutral) face."""
+        self._calib_samples = []
+
+    def finish_calibration(self) -> bool:
+        """Store the baseline. Returns False (keeping the old baseline) if too few samples."""
+        samples, self._calib_samples = self._calib_samples or [], None
+        if len(samples) < MIN_CALIBRATION_SAMPLES:
+            log.warning("Calibration failed: only %d face samples", len(samples))
+            return False
+        self._baseline = baseline_from_samples(samples)
+        self.reset_smoothing()
+        log.info("Calibrated on %d samples", len(samples))
+        return True
+
+    def reset_smoothing(self) -> None:
+        self.smoother.reset()
+        self.gate.reset()
+        self._valence.reset()
+        self._arousal.reset()
 
     # ------------------------------------------------------------------ helpers
     def _find_face(self, gray: np.ndarray) -> Optional[Box]:
@@ -184,7 +274,7 @@ class EmotionDetector:
         scores: Scores,
         threshold: float,
     ) -> Tuple[str, float]:
-        """If the model says an unsure 'neutral' but a smile is visible, call it 'happy'."""
+        """FER/DeepFace only: an unsure 'neutral' plus a visible smile becomes 'happy'."""
         if dom == "neutral" and conf < threshold and face is not None:
             if self._has_smile(gray, face):
                 scores["happy"] = max(scores["happy"], SMILE_SCORE)
@@ -192,6 +282,26 @@ class EmotionDetector:
         return dom, conf
 
     # ------------------------------------------------------------------ backends
+    def _run_mediapipe(self, frame: np.ndarray) -> Optional[Detection]:
+        """Blendshapes -> features -> valence/arousal -> mood scores. None means 'try next'."""
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        try:
+            obs = self._mp.observe(rgb)
+        except Exception as exc:
+            log.debug("MediaPipe inference failed: %s", exc)
+            return None
+        self.active_backend = "mediapipe"
+        if obs is None:
+            return _no_face()
+
+        features = extract_features(obs.blendshapes)
+        if self._calib_samples is not None:
+            self._calib_samples.append(features)
+        valence, arousal = estimate_affect(features, self._baseline)
+        scores = scores_from_affect(valence, arousal)
+        dom = max(scores, key=scores.get)  # type: ignore[arg-type]
+        return Detection(dom, scores[dom], obs.box, scores, valence, arousal)
+
     def _run_fer(
         self,
         rgb_crop: np.ndarray,
@@ -212,6 +322,7 @@ class EmotionDetector:
             return None
 
         scores = _fold_scores(emotions)
+        valence, arousal = circumplex_va(emotions)
         dom_raw = max(emotions, key=emotions.get)
         conf = float(emotions[dom_raw])
         dom = map_emotion(dom_raw)
@@ -224,7 +335,7 @@ class EmotionDetector:
 
         dom, conf = self._apply_smile_nudge(gray, face, dom, conf, scores, SMILE_NUDGE_FER)
         self.active_backend = "fer"
-        return Detection(dom, conf, box, scores)
+        return Detection(dom, conf, box, scores, valence, arousal)
 
     def _run_deepface(
         self, rgb_crop: np.ndarray, gray: np.ndarray, face: Optional[Box], padded: Optional[Box]
@@ -244,31 +355,38 @@ class EmotionDetector:
             return None
 
         scores = _fold_scores(emotions, scale=1 / 100.0)  # DeepFace reports 0..100
+        valence, arousal = circumplex_va(emotions)
         dom_raw = analysis.get("dominant_emotion", "neutral")
         conf = float(emotions.get(dom_raw, 0.0)) / 100.0
         dom = map_emotion(dom_raw)
 
         dom, conf = self._apply_smile_nudge(gray, face, dom, conf, scores, SMILE_NUDGE_DEEPFACE)
         self.active_backend = "deepface"
-        return Detection(dom, conf, padded, scores)
+        return Detection(dom, conf, padded, scores, valence, arousal)
 
     def _run_haar(self, gray: np.ndarray, face: Optional[Box], padded: Optional[Box]) -> Detection:
         """Last resort: a smile means happy, otherwise repeat the last known mood."""
         if face is None:
             self.active_backend = "none"
-            return Detection("neutral", 0.0, None, _empty_scores(neutral=1.0))
+            return _no_face()
         self.active_backend = "haar"
         if self._has_smile(gray, face):
             scores = _empty_scores(neutral=0.2)
             scores["happy"] = 0.8
-            return Detection("happy", 0.55, padded, scores)
-        return Detection(self.last, 0.45, padded, _empty_scores(neutral=1.0))
+            valence, arousal = circumplex_va({"happy": 1.0})
+            return Detection("happy", 0.55, padded, scores, valence, arousal)
+        return Detection(self.last, 0.45, padded, _empty_scores(neutral=1.0), 0.0, 0.0)
 
     # ------------------------------------------------------------------ public API
     def detect(self, frame: Optional[np.ndarray]) -> Detection:
         """One raw (unsmoothed) detection on a BGR frame."""
         if frame is None:
-            return Detection("neutral", 0.0, None, _empty_scores(neutral=1.0))
+            return _no_face()
+
+        if self._mp is not None:
+            result = self._run_mediapipe(frame)
+            if result is not None:
+                return result
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face = self._find_face(gray)
@@ -294,10 +412,18 @@ class EmotionDetector:
         return self._run_haar(gray, face, padded)
 
     def detect_stable(self, frame: Optional[np.ndarray]) -> Detection:
-        """Detection smoothed over recent frames: ``(mood, confidence, box, averaged_scores)``."""
+        """Detection smoothed over time (rolling average, hysteresis, EMA valence/arousal)."""
         det = self.detect(frame)
         conf = min(1.0, max(0.0, float(det.confidence)))
-        stable, stable_conf, scores = self.smoother.update(det.scores, det.emotion, conf)
-        self.last = stable
-        self.last_conf = stable_conf
-        return Detection(stable, stable_conf, det.box, scores)
+        candidate, cand_conf, avg = self.smoother.update(det.scores, det.emotion, conf)
+        mood = self.gate.update(candidate, avg)
+        mood_conf = cand_conf if mood == candidate else avg.get(mood, cand_conf)
+
+        # With no face, valence/arousal decay toward neutral instead of freezing.
+        has_face = det.box is not None
+        valence = self._valence.update(det.valence if has_face else 0.0)
+        arousal = self._arousal.update(det.arousal if has_face else 0.0)
+
+        self.last = mood
+        self.last_conf = mood_conf
+        return Detection(mood, mood_conf, det.box, avg, valence, arousal)
