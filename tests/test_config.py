@@ -7,7 +7,8 @@ def test_defaults_match_original_prototype():
     c = Config()
     assert (c.width, c.height) == (960, 540)
     assert c.advance_interval_s == 3.5 and c.min_confidence == 0.25
-    assert c.motion_threshold == 7.0 and c.happy_bias is True
+    assert c.happy_bias is True
+    assert c.motion_mode == "face" and c.resolved_motion_threshold == 0.03
 
 
 def test_cli_flags_override_defaults():
@@ -15,6 +16,18 @@ def test_cli_flags_override_defaults():
     c = config_from_args(argv)
     assert c.camera_index == 1 and c.advance_interval_s == 2 and not c.happy_bias
     assert c.backend == "haar"
+
+
+def test_motion_mode_changes_default_threshold():
+    c = config_from_args(["--motion-mode", "frame"])
+    assert c.resolved_motion_threshold == 7.0
+    assert config_from_args(["--motion-threshold", "0.1"]).resolved_motion_threshold == 0.1
+
+
+def test_phase3_flags():
+    c = config_from_args(["--no-calibration", "--mp-model", "m.task", "--backend", "mediapipe"])
+    assert not c.calibrate_on_start and str(c.mediapipe_model) == "m.task"
+    assert c.backend == "mediapipe"
 
 
 @pytest.mark.parametrize(
@@ -25,6 +38,10 @@ def test_cli_flags_override_defaults():
         {"min_confidence": 1.5},
         {"advance_interval_s": 0},
         {"width": 100},
+        {"motion_mode": "nope"},
+        {"hysteresis_frames": 0},
+        {"affect_smoothing": 0.0},
+        {"calibration_s": 0},
     ],
 )
 def test_invalid_config_is_rejected(kwargs):
