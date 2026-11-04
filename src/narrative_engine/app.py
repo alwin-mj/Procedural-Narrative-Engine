@@ -4,15 +4,25 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional
+from typing import Any, Callable, Deque, Dict, Optional, Set
 
 import cv2
 import numpy as np
 
-from .config import Config
-from .director import Story, choose_advance_emotion, load_story
+from .config import MOODS, Config
+from .director import (
+    Affect,
+    Decision,
+    DramaManager,
+    StoryGraph,
+    StorySession,
+    choose_advance_emotion,
+    load_story,
+)
+from .director.realizer import BeatRequest, LLMRealizer, RealizerWorker
 from .perception import EmotionDetector, FaceMotion, MotionDetector
 from .render import GameWindow, PlayerAnimation
 
@@ -29,20 +39,25 @@ KEY_CALIBRATE = ord("c")
 class App:
     """Owns all components and the per-frame update logic.
 
-    ``detector``, ``story`` and ``clock`` can be injected, which keeps the logic testable
-    without a camera or real time.
+    ``detector``, ``story``, ``realizer``, ``clock`` and ``rng`` can be injected, which keeps
+    the logic testable without a camera, a language model, or real time.
     """
 
     def __init__(
         self,
         cfg: Config,
         detector: Optional[Any] = None,
-        story: Optional[Story] = None,
+        story: Optional[StoryGraph] = None,
         clock: Callable[[], float] = time.monotonic,
+        realizer: Optional[Any] = None,
+        rng: Optional[random.Random] = None,
     ) -> None:
         self.cfg = cfg
         self._clock = clock
-        self.story: Story = story or load_story(cfg.story_path)
+        self._rng = rng or random.Random()
+        self.graph: StoryGraph = story or load_story(cfg.story_path)
+        self.session = StorySession(self.graph)
+        self.drama = DramaManager(self.session)
         self.detector = detector or EmotionDetector(
             cfg.backend,
             cfg.smoothing_buffer,
@@ -64,13 +79,27 @@ class App:
         )
         self.window = GameWindow(cfg.width, cfg.height, player_anim=anim)
 
+        self.worker: Optional[RealizerWorker] = None
+        if realizer is not None:
+            self.worker = RealizerWorker(realizer, clock=clock)
+        elif cfg.llm:
+            llm = LLMRealizer(cfg.llm, cfg.llm_host, cfg.llm_timeout_s)
+            self.worker = RealizerWorker(llm, clock=clock)
+        self._requested: Set[Any] = set()
+        self._recent: Deque[str] = deque(maxlen=3)
+
         self.history: Deque[str] = deque(maxlen=cfg.history_len)
         self.active = False
+        self.last_decision: Optional[Decision] = None
         self._last_advance = 0.0
         self._last_chosen: Optional[str] = None
         self._last_scores: Dict[str, float] = {}
         self._latest_scores: Dict[str, float] = {}
         self._latest_emo = "neutral"
+        self._latest_affect = Affect()
+        self._random_mood = "neutral"
+        self._acc_v = self._acc_a = 0.0  # affect accumulated during the current scene
+        self._acc_n = 0
 
         # mood-shift tracking: a mood must persist for mood_dwell_s to count as a shift
         self._candidate = "neutral"
@@ -84,31 +113,124 @@ class App:
         self._notice_until = 0.0
 
     # ------------------------------------------------------------------ story control
-    def _advance(self, scores: Dict[str, float], now: float) -> str:
-        chosen = choose_advance_emotion(
-            scores, self._last_chosen, self._last_scores, happy_bias=self.cfg.happy_bias
-        )
-        text = self.story.advance(chosen)
-        self._last_chosen = chosen
-        self._last_scores = dict(scores)
+    def _scene_affect(self) -> Affect:
+        """Mean valence/arousal over the scene being played (latest reading if none yet)."""
+        if self._acc_n:
+            return Affect(self._acc_v / self._acc_n, self._acc_a / self._acc_n)
+        return self._latest_affect
+
+    def _display_mood(self, emo: str) -> str:
+        """Which mood variant to show: live (adaptive), always neutral (fixed), or random."""
+        mode = self.cfg.director_mode
+        if mode == "fixed":
+            return "neutral"
+        if mode == "random":
+            return self._random_mood
+        return emo
+
+    def _advance(self, now: float) -> None:
+        s = self.session
+        if s.finished:
+            return
+        mode = self.cfg.director_mode
+        affect = self._scene_affect()
+        if mode == "fixed":
+            mood = "neutral"
+        elif mode == "random":
+            mood = self._random_mood = self._rng.choice(MOODS)
+        else:
+            mood = choose_advance_emotion(
+                self._latest_scores, self._last_chosen, self._last_scores, self.cfg.mood_bias
+            )
+
+        if mode == "fixed":
+            decision = self.drama.decide_fixed(mood, affect)
+        elif mode == "random":
+            decision = self.drama.decide_random(mood, affect, self._rng)
+        else:
+            decision = self.drama.decide(mood, affect)
+
+        if decision.to_id is None:
+            s.finish(mood, affect)
+        else:
+            s.advance(decision.to_id, mood, affect)
+            self._recent.append(s.get_line(mood))
+        self.last_decision = decision
+        self._last_chosen = mood
+        self._last_scores = dict(self._latest_scores)
         self._last_advance = now
-        log.debug("advanced to scene %d as %r", self.story.scene_idx, chosen)
-        return text
+        self._acc_v = self._acc_a = 0.0
+        self._acc_n = 0
+        log.info("director: %s", decision.reason)
+        if s.finished:
+            log.info("ending: %s", s.ending_id)
+        self._prefetch(self._display_mood(self._latest_emo), affect)
 
     def _start(self, now: float) -> None:
-        self.story.reset()
+        self.session.reset()
         self.active = True
+        self.last_decision = None
         self._last_advance = now
         self._last_chosen = None
         self._last_scores = {}
+        self._acc_v = self._acc_a = 0.0
+        self._acc_n = 0
         self._reaction_until = 0.0
         self._shown_emo = self._latest_emo
+        self._recent.clear()
+        self._requested.clear()
+        if self.cfg.director_mode == "random":
+            self._random_mood = self._rng.choice(MOODS)
         if (
             self.cfg.calibrate_on_start
             and getattr(self.detector, "supports_calibration", False)
             and not getattr(self.detector, "calibrated", False)
         ):
             self.start_calibration(now)
+        self._prefetch(self._display_mood(self._latest_emo), self._latest_affect)
+
+    # ------------------------------------------------------------------ LLM text
+    def _request(self, text: str, mood: str, location: str, affect: Affect) -> BeatRequest:
+        return BeatRequest(
+            authored=text,
+            mood=mood,
+            valence=affect.valence,
+            arousal=affect.arousal,
+            title=self.graph.title,
+            protagonist=self.graph.protagonist,
+            location=location,
+            recent=tuple(self._recent),
+        )
+
+    def _prefetch(self, mood: str, affect: Affect) -> None:
+        """Ask the LLM for the likely next scenes now, so their text is ready when needed."""
+        s = self.session
+        if self.worker is None or s.finished or s.is_terminal:
+            return
+        for edge in s.candidates(mood, affect)[:3]:
+            text = s.preview_line(edge.to, mood, affect)
+            key = (edge.to, mood, text)
+            if key not in self._requested:
+                loc = self.graph.nodes[edge.to].location
+                if self.worker.submit(key, self._request(text, mood, loc, affect)):
+                    self._requested.add(key)
+
+    def _scene_text(self, emo: str) -> str:
+        """Authored text now; the LLM version replaces it as soon as it is available."""
+        mood = self._display_mood(emo)
+        s = self.session
+        base = s.get_line(mood)
+        if self.worker is None or s.finished:
+            return base
+        key = (s.current_id, mood, base)
+        cached = self.worker.get(key)
+        if cached:
+            return cached
+        if key not in self._requested:
+            req = self._request(base, mood, s.node.location, self._scene_affect())
+            if self.worker.submit(key, req):
+                self._requested.add(key)
+        return base
 
     # ------------------------------------------------------------------ calibration
     def start_calibration(self, now: float) -> bool:
@@ -144,6 +266,17 @@ class App:
             self._shown_emo = emo
             self._reaction_until = now + self.cfg.reaction_display_s
 
+    def _director_note(self) -> str:
+        if not self.active:
+            return ""
+        s = self.session
+        if s.finished:
+            return f"ending: {s.ending_id}"
+        head = f"scene: {s.current_id} (tension {s.node.tension:.2f})"
+        if self.last_decision is not None:
+            return f"{head} | {self.last_decision.reason}"
+        return head
+
     # ------------------------------------------------------------------ one frame
     def step(self, frame: np.ndarray) -> np.ndarray:
         """Process one camera frame and return the composed output image."""
@@ -155,6 +288,7 @@ class App:
             self.motion.update(box) if cfg.motion_mode == "face" else self.motion.update(frame)
         )
         self._latest_scores, self._latest_emo = scores, emo
+        self._latest_affect = Affect(det.valence, det.arousal)
         self.history.append(emo)
 
         calibrating = self._calib_until is not None
@@ -163,9 +297,13 @@ class App:
             calibrating = False
 
         if not calibrating:
+            if self.active and box is not None:
+                self._acc_v += det.valence
+                self._acc_a += det.arousal
+                self._acc_n += 1
             if self.active and box is not None and conf > cfg.min_confidence:
                 if now - self._last_advance > cfg.advance_interval_s:
-                    self._advance(scores, now)
+                    self._advance(now)
             self._track_mood(emo, conf, now)
 
         if calibrating:
@@ -176,8 +314,8 @@ class App:
         elif not self.active:
             text = PROMPT_TEXT
         else:
-            text = self.story.get_line(emo)
-            if now < self._reaction_until:
+            text = self._scene_text(emo)
+            if now < self._reaction_until and not self.session.finished:
                 text = f"A shift: you seem {emo}. {text}"
 
         return self.window.render(
@@ -192,6 +330,7 @@ class App:
             backend=getattr(self.detector, "active_backend", ""),
             valence=det.valence,
             arousal=det.arousal,
+            director_note=self._director_note(),
         )
 
     def handle_key(self, key: int) -> bool:
@@ -202,7 +341,7 @@ class App:
         if key == KEY_START:
             self._start(now)
         elif key == KEY_NEXT and self.active:
-            self._advance(self._latest_scores, now)
+            self._advance(now)
         elif key == KEY_CALIBRATE:
             self.start_calibration(now)
         return True
@@ -234,4 +373,7 @@ class App:
             close = getattr(self.detector, "close", None)
             if callable(close):
                 close()
+            if self.worker is not None:
+                log.info("LLM stats: %s", self.worker.stats())
+                self.worker.close()
         return 0

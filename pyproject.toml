@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "narrative-engine"
-version = "0.3.0"
+version = "0.4.0"
 description = "Real-time interactive story that adapts to your facial expression via webcam."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,6 +29,7 @@ dev = ["pytest>=7", "pytest-cov", "ruff", "black"]
 
 [project.scripts]
 narrative-engine = "narrative_engine.__main__:main"
+narrative-story = "narrative_engine.story_tool:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

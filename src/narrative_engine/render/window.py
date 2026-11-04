@@ -195,7 +195,16 @@ class GameWindow:
             canvas, label, (x, y + size + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1
         )
 
-    def _draw_story_box(self, canvas: np.ndarray, story_text: str) -> np.ndarray:
+    def _draw_director_note(self, canvas: np.ndarray, note: str) -> None:
+        """Small right-aligned text block explaining the director's latest decision."""
+        x, y = max(12, self.w - 330), 170
+        for i, line in enumerate(wrap_text(note, 44)[:5]):
+            cv2.putText(
+                canvas, line, (x, y + i * 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (215, 215, 215), 1
+            )
+
+    def _draw_story_box(self, canvas: np.ndarray, story_text: str) -> Tuple[np.ndarray, int]:
+        """Draw the text box; returns the canvas and the box's top edge (y)."""
         lines = wrap_text(story_text, 48)
         box_h = 26 * len(lines) + 20
         box_w = self.w - 40
@@ -214,7 +223,7 @@ class GameWindow:
                 2,
                 cv2.LINE_AA,
             )
-        return canvas
+        return canvas, y0
 
     # ------------------------------------------------------------------ main entry
     def render(
@@ -230,6 +239,7 @@ class GameWindow:
         backend: str = "",
         valence: float = 0.0,
         arousal: float = 0.0,
+        director_note: str = "",
     ) -> np.ndarray:
         canvas = self._background(emo)
         self._draw_particles(canvas, emo)
@@ -238,20 +248,19 @@ class GameWindow:
         web_x, web_y = 12, 12
         web_h = self._draw_webcam_preview(canvas, frame, box, web_x, web_y)
 
+        if history:
+            self._draw_history(canvas, history)
+        canvas, box_top = self._draw_story_box(canvas, story_text)
         cv2.putText(
             canvas,
             f"{emo.upper()}  ({conf:.2f})",
-            (12, self.h - 120),
+            (20, box_top - 10),
             cv2.FONT_HERSHEY_DUPLEX,
             0.8,
             (255, 255, 255),
             1,
             cv2.LINE_AA,
         )
-
-        if history:
-            self._draw_history(canvas, history)
-        canvas = self._draw_story_box(canvas, story_text)
 
         status_y = web_y + web_h + 26
         status = "ACTIVE" if active else "PRESS S TO START"
@@ -278,4 +287,6 @@ class GameWindow:
                 1,
             )
         self._draw_affect_pad(canvas, web_x, status_y + 62, 80, valence, arousal)
+        if director_note:
+            self._draw_director_note(canvas, director_note)
         return canvas

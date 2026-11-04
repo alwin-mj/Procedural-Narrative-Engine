@@ -10,6 +10,7 @@ from typing import Optional, Sequence, Tuple
 MOODS: Tuple[str, ...] = ("happy", "uplift", "sad", "neutral")
 BACKENDS: Tuple[str, ...] = ("auto", "mediapipe", "fer", "deepface", "haar")
 MOTION_MODES: Tuple[str, ...] = ("face", "frame")
+DIRECTOR_MODES: Tuple[str, ...] = ("adaptive", "fixed", "random")
 DEFAULT_MOTION_THRESHOLD = {"face": 0.03, "frame": 7.0}
 LOG_LEVELS: Tuple[str, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -43,8 +44,14 @@ class Config:
     reaction_min_confidence: float = 0.20  # minimum confidence to show a mood-shift line
     reaction_display_s: float = 2.0  # how long the "A shift: ..." prefix stays visible
     mood_dwell_s: float = 0.8  # a mood must hold this long before it counts as a "shift"
-    happy_bias: bool = True  # gently steer neutral/sad moods toward warmer scenes
+    mood_bias: float = 0.0  # extra score for "happy" on neutral/sad readings (0 = off)
+    director_mode: str = "adaptive"  # adaptive | fixed | random (the last two are study baselines)
     story_path: Optional[Path] = None  # None = bundled story
+
+    # --- optional LLM scene writer (local Ollama) ---
+    llm: Optional[str] = None  # model name, e.g. "llama3.2"; None = authored text only
+    llm_host: str = "http://localhost:11434"
+    llm_timeout_s: float = 6.0  # per request; the first request gets extra time to load the model
 
     # --- rendering ---
     history_len: int = 30
@@ -78,6 +85,12 @@ class Config:
             raise ValueError(f"motion_mode must be one of {MOTION_MODES}, got {self.motion_mode!r}")
         if self.motion_threshold is not None and self.motion_threshold < 0:
             raise ValueError("motion_threshold must be >= 0")
+        if self.director_mode not in DIRECTOR_MODES:
+            raise ValueError(f"director_mode must be one of {DIRECTOR_MODES}")
+        if self.mood_bias < 0:
+            raise ValueError("mood_bias must be >= 0")
+        if self.llm_timeout_s <= 0:
+            raise ValueError("llm_timeout_s must be > 0")
         if self.hysteresis_margin < 0 or self.hysteresis_frames < 1:
             raise ValueError("hysteresis_margin must be >= 0 and hysteresis_frames >= 1")
         if not 0.0 < self.affect_smoothing <= 1.0:
@@ -145,9 +158,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the neutral-face calibration on start",
     )
     p.add_argument(
-        "--no-happy-bias",
-        action="store_true",
-        help="disable the gentle steering of neutral/sad moods toward warmer scenes",
+        "--mood-bias",
+        type=float,
+        default=d.mood_bias,
+        help="extra 'happy' score on neutral/sad readings (0 = off, 0.25 = old prototype)",
+    )
+    p.add_argument(
+        "--mode",
+        choices=DIRECTOR_MODES,
+        default=d.director_mode,
+        help="adaptive (default), or the fixed / random baselines used for evaluation",
+    )
+    p.add_argument(
+        "--llm", default=None, metavar="MODEL", help="rewrite scenes with a local Ollama model"
+    )
+    p.add_argument("--llm-host", default=d.llm_host, help="Ollama server URL")
+    p.add_argument(
+        "--llm-timeout", type=float, default=d.llm_timeout_s, help="seconds to wait per LLM request"
     )
     p.add_argument("--log-level", choices=LOG_LEVELS, default=d.log_level, help="log verbosity")
     return p
@@ -168,6 +195,10 @@ def config_from_args(argv: Optional[Sequence[str]] = None) -> Config:
         motion_mode=a.motion_mode,
         motion_threshold=a.motion_threshold,
         calibrate_on_start=not a.no_calibration,
-        happy_bias=not a.no_happy_bias,
+        mood_bias=a.mood_bias,
+        director_mode=a.mode,
+        llm=a.llm,
+        llm_host=a.llm_host,
+        llm_timeout_s=a.llm_timeout,
         log_level=a.log_level,
     )
