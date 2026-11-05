@@ -59,6 +59,24 @@ class Config:
     sprite_size: Tuple[int, int] = (160, 160)
     sprite_fps: int = 10
 
+    # --- real-time pipeline ---
+    threaded: bool = True  # capture + perception on their own threads (False = one loop)
+    target_fps: float = 30.0  # render rate
+    perception_hz: float = 15.0  # max detector runs per second
+    perception_max_width: int = 640  # frames are shrunk to this width before detection
+    stale_after_s: float = 0.5  # result older than this: decay valence/arousal toward neutral
+    stale_drop_s: float = 2.0  # result older than this: treat the face as gone
+    stale_half_life_s: float = 1.0  # decay speed while stale
+    no_face_pause_s: float = 3.0  # no face for this long: pause the story and say so
+    camera_lost_after: int = 30  # consecutive failed reads before "camera disconnected"
+    camera_retry_s: float = 2.0  # how often to try reopening a lost camera
+
+    # --- headless / replay ---
+    video: Optional[Path] = None  # play a video file instead of the webcam
+    headless: bool = False  # no window; run to the end of the story / video
+    max_frames: Optional[int] = None  # stop after this many frames (required for headless camera)
+    report: Optional[Path] = None  # write a JSON run report here (headless)
+
     # --- misc ---
     log_level: str = "INFO"
 
@@ -91,6 +109,18 @@ class Config:
             raise ValueError("mood_bias must be >= 0")
         if self.llm_timeout_s <= 0:
             raise ValueError("llm_timeout_s must be > 0")
+        if self.target_fps <= 0 or self.perception_hz <= 0:
+            raise ValueError("target_fps and perception_hz must be > 0")
+        if self.perception_max_width < 0:
+            raise ValueError("perception_max_width must be >= 0 (0 = no downscale)")
+        if not 0 <= self.stale_after_s < self.stale_drop_s or self.stale_half_life_s <= 0:
+            raise ValueError("need 0 <= stale_after_s < stale_drop_s and stale_half_life_s > 0")
+        if self.no_face_pause_s < 0 or self.camera_lost_after < 1 or self.camera_retry_s <= 0:
+            raise ValueError("invalid no_face_pause_s / camera_lost_after / camera_retry_s")
+        if self.max_frames is not None and self.max_frames < 1:
+            raise ValueError("max_frames must be >= 1")
+        if self.headless and self.video is None and self.max_frames is None:
+            raise ValueError("--headless without --video needs --max-frames")
         if self.hysteresis_margin < 0 or self.hysteresis_frames < 1:
             raise ValueError("hysteresis_margin must be >= 0 and hysteresis_frames >= 1")
         if not 0.0 < self.affect_smoothing <= 1.0:
@@ -176,6 +206,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--llm-timeout", type=float, default=d.llm_timeout_s, help="seconds to wait per LLM request"
     )
+    p.add_argument(
+        "--no-threads",
+        action="store_true",
+        help="run capture, detection and rendering in one loop (simpler to debug)",
+    )
+    p.add_argument("--fps", type=float, default=d.target_fps, help="render frame rate")
+    p.add_argument(
+        "--perception-hz", type=float, default=d.perception_hz, help="max detector runs per second"
+    )
+    p.add_argument(
+        "--perception-width",
+        type=int,
+        default=d.perception_max_width,
+        help="shrink frames to this width before detection (0 = off)",
+    )
+    p.add_argument("--video", type=Path, default=None, help="play a video file, not the webcam")
+    p.add_argument("--headless", action="store_true", help="no window; run until the end")
+    p.add_argument("--max-frames", type=int, default=None, help="stop after this many frames")
+    p.add_argument("--report", type=Path, default=None, help="write a JSON run report (headless)")
     p.add_argument("--log-level", choices=LOG_LEVELS, default=d.log_level, help="log verbosity")
     return p
 
@@ -197,6 +246,14 @@ def config_from_args(argv: Optional[Sequence[str]] = None) -> Config:
         calibrate_on_start=not a.no_calibration,
         mood_bias=a.mood_bias,
         director_mode=a.mode,
+        threaded=not a.no_threads,
+        target_fps=a.fps,
+        perception_hz=a.perception_hz,
+        perception_max_width=a.perception_width,
+        video=a.video,
+        headless=a.headless,
+        max_frames=a.max_frames,
+        report=a.report,
         llm=a.llm,
         llm_host=a.llm_host,
         llm_timeout_s=a.llm_timeout,

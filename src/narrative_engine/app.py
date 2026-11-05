@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import random
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, Optional, Set
+from typing import Any, Callable, Deque, Dict, List, Optional, Set
 
 import cv2
 import numpy as np
@@ -23,7 +24,15 @@ from .director import (
     load_story,
 )
 from .director.realizer import BeatRequest, LLMRealizer, RealizerWorker
-from .perception import EmotionDetector, FaceMotion, MotionDetector
+from .perception import Detection, EmotionDetector, FaceMotion, MotionDetector
+from .pipeline import (
+    CameraSource,
+    Metrics,
+    Pipeline,
+    ReconnectingSource,
+    VideoFileSource,
+    degrade,
+)
 from .render import GameWindow, PlayerAnimation
 
 log = logging.getLogger(__name__)
@@ -34,6 +43,23 @@ KEY_QUIT = ord("q")
 KEY_START = ord("s")
 KEY_NEXT = ord(" ")
 KEY_CALIBRATE = ord("c")
+STARTUP_TIMEOUT_S = 10.0
+NO_FACE_TEXT = "I can't see you. Move into view to continue."
+CAMERA_LOST_TEXT = "Camera disconnected. Reconnecting..."
+_SYNC = object()  # step(): "run the detector yourself, on this thread"
+_NO_FACE = Detection(
+    "neutral", 0.0, None, {"happy": 0.0, "uplift": 0.0, "sad": 0.0, "neutral": 1.0}
+)
+
+
+class SimClock:
+    """Clock driven by the video's frame index, so replays run faster than real time."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
 
 
 class App:
@@ -88,9 +114,11 @@ class App:
         self._requested: Set[Any] = set()
         self._recent: Deque[str] = deque(maxlen=3)
 
+        self.metrics = Metrics()
         self.history: Deque[str] = deque(maxlen=cfg.history_len)
         self.active = False
         self.last_decision: Optional[Decision] = None
+        self.decision_log: List[str] = []
         self._last_advance = 0.0
         self._last_chosen: Optional[str] = None
         self._last_scores: Dict[str, float] = {}
@@ -106,6 +134,15 @@ class App:
         self._candidate_since = 0.0
         self._shown_emo = "neutral"
         self._reaction_until = 0.0
+
+        # latest perception, so rendering can repeat it between detector updates
+        self._det: Detection = _NO_FACE
+        self._walking = False
+        self._lagging = False
+        self._last_result_id = -1
+        self._no_face_since: Optional[float] = None
+        self._seen_window = False
+        self._closed = False
 
         # calibration / transient messages
         self._calib_until: Optional[float] = None
@@ -156,6 +193,8 @@ class App:
             s.advance(decision.to_id, mood, affect)
             self._recent.append(s.get_line(mood))
         self.last_decision = decision
+        if len(self.decision_log) < 500:
+            self.decision_log.append(decision.reason)
         self._last_chosen = mood
         self._last_scores = dict(self._latest_scores)
         self._last_advance = now
@@ -277,19 +316,73 @@ class App:
             return f"{head} | {self.last_decision.reason}"
         return head
 
+    # ------------------------------------------------------------------ perception
+    def _perceive(self, frame: np.ndarray, result: Any, now: float) -> "tuple[Detection, bool]":
+        """The detection to act on this frame, and whether it is a *new* reading.
+
+        ``result`` is ``_SYNC`` (run the detector here), ``None`` (the worker has produced
+        nothing yet) or a :class:`PerceptionResult` from the worker thread.
+        """
+        if result is _SYNC:
+            t0 = time.perf_counter()
+            det = self.detector.detect_stable(frame)
+            ms = (time.perf_counter() - t0) * 1000.0
+            self.metrics.record_perception(ms, ms)
+            self._lagging = False
+            return det, True
+        if result is None:
+            return _NO_FACE, False
+        cfg = self.cfg
+        det, self._lagging = degrade(
+            result.detection,
+            now - result.finished_at,
+            cfg.stale_after_s,
+            cfg.stale_drop_s,
+            cfg.stale_half_life_s,
+        )
+        fresh = result.frame_id != self._last_result_id
+        self._last_result_id = result.frame_id
+        return det, fresh
+
     # ------------------------------------------------------------------ one frame
-    def step(self, frame: np.ndarray) -> np.ndarray:
-        """Process one camera frame and return the composed output image."""
+    def step(
+        self,
+        frame: np.ndarray,
+        result: Any = _SYNC,
+        camera_ok: bool = True,
+        render: bool = True,
+    ) -> Optional[np.ndarray]:
+        """Process one frame and (optionally) return the composed output image.
+
+        With the default ``result`` the detector runs on this thread. In threaded mode the
+        caller passes the worker's latest :class:`PerceptionResult` (or ``None``), so this
+        method never waits for inference.
+        """
         cfg = self.cfg
         now = self._clock()
-        det = self.detector.detect_stable(frame)
+        det, fresh = self._perceive(frame, result, now)
         emo, conf, box, scores = det.emotion, det.confidence, det.box, det.scores
-        walking = (
-            self.motion.update(box) if cfg.motion_mode == "face" else self.motion.update(frame)
+        self._det = det
+
+        # State that should advance once per detector reading, not once per rendered frame.
+        if fresh:
+            self._walking = (
+                self.motion.update(box) if cfg.motion_mode == "face" else self.motion.update(frame)
+            )
+            self._latest_scores, self._latest_emo = scores, emo
+            self._latest_affect = Affect(det.valence, det.arousal)
+            self.history.append(emo)
+
+        face_seen = box is not None and camera_ok
+        if face_seen:
+            self._no_face_since = None
+        elif self._no_face_since is None:
+            self._no_face_since = now
+        face_lost = (
+            self.active
+            and self._no_face_since is not None
+            and now - self._no_face_since >= cfg.no_face_pause_s
         )
-        self._latest_scores, self._latest_emo = scores, emo
-        self._latest_affect = Affect(det.valence, det.arousal)
-        self.history.append(emo)
 
         calibrating = self._calib_until is not None
         if calibrating and now >= self._calib_until:  # type: ignore[operator]
@@ -297,27 +390,37 @@ class App:
             calibrating = False
 
         if not calibrating:
-            if self.active and box is not None:
+            if self.active and camera_ok and fresh and box is not None:
                 self._acc_v += det.valence
                 self._acc_a += det.arousal
                 self._acc_n += 1
-            if self.active and box is not None and conf > cfg.min_confidence:
+            if self.active and camera_ok and box is not None and conf > cfg.min_confidence:
                 if now - self._last_advance > cfg.advance_interval_s:
                     self._advance(now)
+            if self.active and (face_lost or not camera_ok):
+                self._last_advance = now  # hold the scene timer while the story is paused
             self._track_mood(emo, conf, now)
 
         if calibrating:
             remaining = math.ceil(self._calib_until - now)  # type: ignore[operator]
             text = f"Hold a neutral face... {remaining}"
+        elif not camera_ok:
+            text = CAMERA_LOST_TEXT
         elif now < self._notice_until:
             text = self._notice
         elif not self.active:
             text = PROMPT_TEXT
+        elif face_lost:
+            text = NO_FACE_TEXT
         else:
             text = self._scene_text(emo)
             if now < self._reaction_until and not self.session.finished:
                 text = f"A shift: you seem {emo}. {text}"
 
+        self.metrics.record_frame()
+        if not render:
+            return None
+        stats = self.metrics.hud_text() + (" | LAGGING" if self._lagging else "")
         return self.window.render(
             frame,
             emo,
@@ -326,11 +429,12 @@ class App:
             self.active,
             text,
             list(self.history),
-            walking=walking,
+            walking=self._walking,
             backend=getattr(self.detector, "active_backend", ""),
             valence=det.valence,
             arousal=det.arousal,
             director_note=self._director_note(),
+            stats=stats,
         )
 
     def handle_key(self, key: int) -> bool:
@@ -346,34 +450,196 @@ class App:
             self.start_calibration(now)
         return True
 
-    # ------------------------------------------------------------------ main loop
+    # ------------------------------------------------------------------ running
+    def _make_source(self) -> Any:
+        cfg = self.cfg
+        if cfg.video:
+            return VideoFileSource(cfg.video, realtime=not cfg.headless)
+        return CameraSource(cfg.camera_index)
+
+    def _window_closed(self) -> bool:
+        """True once the user closed the window with its X button."""
+        try:
+            visible = cv2.getWindowProperty(self.cfg.window_title, cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            return self._seen_window
+        if visible >= 1:
+            self._seen_window = True
+            return False
+        return self._seen_window
+
+    def _show(self, out: np.ndarray) -> bool:
+        """Display a frame and handle input. Returns False when the app should stop."""
+        cv2.imshow(self.cfg.window_title, out)
+        key = cv2.waitKey(1) & 0xFF
+        return self.handle_key(key) and not self._window_closed()
+
     def run(self) -> int:
-        cap = cv2.VideoCapture(self.cfg.camera_index)
-        if not cap.isOpened():
-            log.error(
-                "Cannot open camera %d. Close other apps using it or try --camera 1.",
-                self.cfg.camera_index,
-            )
+        """Run until quit (window) or until the story/video/frame limit (headless)."""
+        source = self._make_source()
+        try:
+            if self.cfg.headless:
+                report = self.run_headless(source)
+                self._write_report(report)
+                return 0
+            if not source.open():
+                what = f"video {self.cfg.video}" if self.cfg.video else (
+                    f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
+                )
+                log.error("Cannot open %s", what)
+                return 1
+            log.info("Running. Keys: S start, C calibrate, SPACE next scene, Q quit.")
+            return self._loop_threaded(source) if self.cfg.threaded else self._loop_sync(source)
+        except RuntimeError as exc:
+            log.error("%s", exc)
             return 1
-        log.info("Running. Keys: S start, C calibrate, SPACE next scene, Q quit.")
+        finally:
+            self._shutdown()
+
+    def _loop_threaded(self, source: Any) -> int:
+        cfg = self.cfg
+        pipe = Pipeline(
+            source,
+            self.detector,
+            hz=cfg.perception_hz,
+            max_width=cfg.perception_max_width,
+            lost_after=cfg.camera_lost_after,
+            retry_s=cfg.camera_retry_s,
+            metrics=self.metrics,
+            clock=self._clock,
+        )
+        pipe.start()
+        interval = 1.0 / cfg.target_fps
+        started = time.monotonic()
         try:
             while True:
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    time.sleep(0.05)
+                t0 = time.perf_counter()
+                frame = pipe.frame()
+                if frame is None:  # nothing yet, or the stream ended before a frame arrived
+                    if pipe.ended:
+                        break
+                    if time.monotonic() - started > STARTUP_TIMEOUT_S:
+                        log.error("No frames received after %.0f s", STARTUP_TIMEOUT_S)
+                        return 1
+                    time.sleep(0.01)
                     continue
-                frame = cv2.flip(frame, 1)
-                cv2.imshow(self.cfg.window_title, self.step(frame))
-                key = cv2.waitKey(1) & 0xFF
-                if not self.handle_key(key):
+                out = self.step(frame, pipe.result(), pipe.camera_ok)
+                if not self._show(out):
+                    break
+                if pipe.ended:
+                    log.info("End of video")
+                    break
+                spare = interval - (time.perf_counter() - t0)
+                if spare > 0:
+                    time.sleep(spare)
+        finally:
+            if not pipe.stop():
+                log.warning("a pipeline thread did not stop cleanly")
+            cv2.destroyAllWindows()
+        return 0
+
+    def _loop_sync(self, source: Any) -> int:
+        cfg = self.cfg
+        reader = ReconnectingSource(source, cfg.camera_lost_after, cfg.camera_retry_s, self._clock)
+        interval = 1.0 / cfg.target_fps
+        frame: Optional[np.ndarray] = None
+        try:
+            while True:
+                t0 = time.perf_counter()
+                new = reader.read()
+                if reader.ended:
+                    log.info("End of video")
+                    break
+                if new is not None:
+                    frame = new
+                if frame is None:
+                    time.sleep(0.01)
+                    continue
+                out = self.step(frame, _SYNC, reader.connected)
+                if not self._show(out):
+                    break
+                spare = interval - (time.perf_counter() - t0)
+                if spare > 0 and not reader.source.realtime:
+                    time.sleep(spare)
+        finally:
+            reader.release()
+            cv2.destroyAllWindows()
+        return 0
+
+    def run_headless(self, source: Any) -> Dict[str, Any]:
+        """Play a source with no window and return a run report.
+
+        A video file is replayed on a *simulated* clock (frame index / fps), so a 60-second
+        recording is processed in seconds and the story still sees 60 seconds go by.
+        Single-threaded, so results are reproducible.
+        """
+        cfg = self.cfg
+        if not source.open():
+            raise RuntimeError(f"Cannot open {cfg.video or f'camera {cfg.camera_index}'}")
+        sim: Optional[SimClock] = None
+        if not getattr(source, "realtime", True):
+            sim = SimClock()
+            self._clock = sim
+        fps = float(getattr(source, "fps", 30.0)) or 30.0
+        wall0 = time.perf_counter()
+        n = 0
+        try:
+            self._start(self._clock())
+            while cfg.max_frames is None or n < cfg.max_frames:
+                ok, frame = source.read()
+                if not ok or frame is None:
+                    break
+                if sim is not None:
+                    sim.t = n / fps
+                self.step(frame, _SYNC, True, render=False)
+                n += 1
+                if self.session.finished:
                     break
         finally:
-            cap.release()
-            cv2.destroyAllWindows()
-            close = getattr(self.detector, "close", None)
-            if callable(close):
-                close()
-            if self.worker is not None:
-                log.info("LLM stats: %s", self.worker.stats())
-                self.worker.close()
-        return 0
+            source.release()
+        return self._report(n, time.perf_counter() - wall0, n / fps if sim else None)
+
+    def _report(self, frames: int, wall_s: float, sim_s: Optional[float]) -> Dict[str, Any]:
+        s = self.session
+        return {
+            "mode": self.cfg.director_mode,
+            "backend": getattr(self.detector, "active_backend", ""),
+            "frames": frames,
+            "sim_duration_s": round(sim_s, 2) if sim_s is not None else None,
+            "wall_s": round(wall_s, 3),
+            "wall_fps": round(frames / wall_s, 1) if wall_s > 0 else None,
+            "metrics": self.metrics.snapshot(),
+            "finished": s.finished,
+            "ending": s.ending_id,
+            "route": list(s.state.visited),
+            "moods": list(s.state.moods),
+            "decisions": list(self.decision_log),
+            "llm": self.worker.stats() if self.worker is not None else None,
+        }
+
+    def _write_report(self, report: Dict[str, Any]) -> None:
+        log.info(
+            "headless run: %d frames in %.2fs, route=%s, ending=%s",
+            report["frames"],
+            report["wall_s"],
+            "->".join(report["route"]),
+            report["ending"],
+        )
+        if self.cfg.report:
+            self.cfg.report.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.cfg.report, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2)
+                f.write("\n")
+            log.info("report written to %s", self.cfg.report)
+
+    def _shutdown(self) -> None:
+        """Release everything. Safe to call more than once."""
+        if self._closed:
+            return
+        self._closed = True
+        close = getattr(self.detector, "close", None)
+        if callable(close):
+            close()
+        if self.worker is not None:
+            log.info("LLM stats: %s", self.worker.stats())
+            self.worker.close()

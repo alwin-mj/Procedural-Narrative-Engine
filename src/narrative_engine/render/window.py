@@ -240,6 +240,7 @@ class GameWindow:
         valence: float = 0.0,
         arousal: float = 0.0,
         director_note: str = "",
+        stats: str = "",
     ) -> np.ndarray:
         canvas = self._background(emo)
         self._draw_particles(canvas, emo)
@@ -289,4 +290,14 @@ class GameWindow:
         self._draw_affect_pad(canvas, web_x, status_y + 62, 80, valence, arousal)
         if director_note:
             self._draw_director_note(canvas, director_note)
+        if stats:
+            cv2.putText(
+                canvas,
+                stats,
+                (web_x, status_y + 62 + 80 + 34),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.4,
+                (200, 200, 200),
+                1,
+            )
         return canvas

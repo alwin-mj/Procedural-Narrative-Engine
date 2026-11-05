@@ -9,6 +9,7 @@ valence/arousal.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
@@ -138,6 +139,9 @@ class EmotionDetector:
         self._deepface: Any = None
         self._baseline: Optional[Dict[str, float]] = None
         self._calib_samples: Optional[List[Dict[str, float]]] = None
+        # Detection may run on a worker thread while the UI thread starts/finishes calibration
+        # or resets smoothing; this guards that shared state (inference itself is not locked).
+        self._state_lock = threading.RLock()
 
         if backend in ("auto", "mediapipe"):
             self._mp = self._load_mediapipe(mediapipe_model)
@@ -217,11 +221,13 @@ class EmotionDetector:
 
     def begin_calibration(self) -> None:
         """Start collecting the user's resting (neutral) face."""
-        self._calib_samples = []
+        with self._state_lock:
+            self._calib_samples = []
 
     def finish_calibration(self) -> bool:
         """Store the baseline. Returns False (keeping the old baseline) if too few samples."""
-        samples, self._calib_samples = self._calib_samples or [], None
+        with self._state_lock:
+            samples, self._calib_samples = self._calib_samples or [], None
         if len(samples) < MIN_CALIBRATION_SAMPLES:
             log.warning("Calibration failed: only %d face samples", len(samples))
             return False
@@ -231,10 +237,11 @@ class EmotionDetector:
         return True
 
     def reset_smoothing(self) -> None:
-        self.smoother.reset()
-        self.gate.reset()
-        self._valence.reset()
-        self._arousal.reset()
+        with self._state_lock:
+            self.smoother.reset()
+            self.gate.reset()
+            self._valence.reset()
+            self._arousal.reset()
 
     # ------------------------------------------------------------------ helpers
     def _find_face(self, gray: np.ndarray) -> Optional[Box]:
@@ -295,8 +302,9 @@ class EmotionDetector:
             return _no_face()
 
         features = extract_features(obs.blendshapes)
-        if self._calib_samples is not None:
-            self._calib_samples.append(features)
+        with self._state_lock:
+            if self._calib_samples is not None:
+                self._calib_samples.append(features)
         valence, arousal = estimate_affect(features, self._baseline)
         scores = scores_from_affect(valence, arousal)
         dom = max(scores, key=scores.get)  # type: ignore[arg-type]
@@ -415,15 +423,16 @@ class EmotionDetector:
         """Detection smoothed over time (rolling average, hysteresis, EMA valence/arousal)."""
         det = self.detect(frame)
         conf = min(1.0, max(0.0, float(det.confidence)))
-        candidate, cand_conf, avg = self.smoother.update(det.scores, det.emotion, conf)
-        mood = self.gate.update(candidate, avg)
-        mood_conf = cand_conf if mood == candidate else avg.get(mood, cand_conf)
+        with self._state_lock:
+            candidate, cand_conf, avg = self.smoother.update(det.scores, det.emotion, conf)
+            mood = self.gate.update(candidate, avg)
+            mood_conf = cand_conf if mood == candidate else avg.get(mood, cand_conf)
 
-        # With no face, valence/arousal decay toward neutral instead of freezing.
-        has_face = det.box is not None
-        valence = self._valence.update(det.valence if has_face else 0.0)
-        arousal = self._arousal.update(det.arousal if has_face else 0.0)
+            # With no face, valence/arousal decay toward neutral instead of freezing.
+            has_face = det.box is not None
+            valence = self._valence.update(det.valence if has_face else 0.0)
+            arousal = self._arousal.update(det.arousal if has_face else 0.0)
 
-        self.last = mood
-        self.last_conf = mood_conf
+            self.last = mood
+            self.last_conf = mood_conf
         return Detection(mood, mood_conf, det.box, avg, valence, arousal)

@@ -31,6 +31,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
     except KeyboardInterrupt:
         return 0
+    except Exception:  # last resort: a clear message and a non-zero exit, not a bare traceback
+        logging.getLogger(__name__).exception("Unexpected error")
+        return 1
 
 
 if __name__ == "__main__":

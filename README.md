@@ -34,6 +34,8 @@ background colour, particles and character react to match.
 - **Four mood variants per scene**, so the same story plays differently for different people.
 - **Optional local-LLM narrator** (Ollama) that re-voices each scene for your mood, always with an authored fallback.
 - **Fully local**: no video is stored or sent anywhere.
+- **Stays smooth**: camera, detection and rendering run on separate threads, so a slow detector never freezes the screen.
+- **Fails gracefully**: no face, a slow detector or an unplugged camera pauses the story with a message instead of crashing.
 - **Continuous mood model**: valence (unhappy to happy) and arousal (calm to excited), not just labels.
 - **Per-user calibration** so your resting face is not misread as an emotion.
 - **Works out of the box** with a lightweight fallback; the recommended MediaPipe backend is one install away.
@@ -98,6 +100,54 @@ Webcam -> Detector backend -> Affect model -> Smoothing -> Director -> GameWindo
 
 The valence/arousal weights are heuristics, not a trained model. They live in one dataclass
 (`AffectWeights`) so they can be tuned and measured.
+
+## Real-time pipeline
+
+```
+Camera thread ──latest frame──▶ Perception thread ──latest result──▶ UI thread
+(camera's own pace)             (<= 15 Hz, frames shrunk to 640 px,  (renders ~30 FPS,
+                                 old frames dropped)                  never waits for the model)
+```
+
+- Each hand-off is a **single "latest value" slot**, not a queue: if the detector is slower than the camera,
+  old frames are skipped and nothing piles up, so latency stays bounded.
+- Detection runs on a downscaled copy of the frame; the face box is scaled back to full-frame coordinates.
+- Smoothing and motion update once per *detector reading*, not once per rendered frame.
+- The on-screen stats line shows render FPS, detector rate and p95 inference time.
+
+Measured with `python scripts/bench_pipeline.py` on a **synthetic** 30 FPS camera and an artificially slow
+detector (no real model), in the sandbox this was developed in:
+
+| Detector latency | Single loop (render FPS) | Threaded (render FPS) |
+|---|---|---|
+| 60 ms | 10.0 | 29.7 |
+| 250 ms | 3.7 | 29.7 |
+
+Run it on your own machine for real numbers, and measure your actual detector with `--report` (below).
+
+**Graceful degradation**
+
+| Situation | What happens |
+|---|---|
+| Detector falls behind (> 0.5 s old) | Keeps the last stable mood; valence/arousal decay toward neutral; HUD shows `LAGGING` |
+| Detector stalls (> 2 s) | The face is treated as gone |
+| No face for 3 s | Story pauses, shows "I can't see you", and the scene timer restarts when you return |
+| Camera stops delivering frames | "Camera disconnected. Reconnecting...", story pauses, reopen attempts every 2 s |
+| Window closed with X, `Q`, Ctrl+C, or an error | Threads are joined and the camera is released |
+| Detector raises on a frame | Logged (rate-limited); perception continues with the next frame |
+
+**Headless replay.** Run the whole engine on a recording, with no window:
+
+```bash
+narrative-engine --video session.mp4 --headless --report run.json
+narrative-engine --headless --max-frames 300 --report run.json     # live camera, no window
+```
+
+A video is replayed on a **simulated clock** (frame index / fps): a 60-second recording is processed in a few
+seconds, and the story still experiences 60 seconds. It runs single-threaded, so the same video gives the
+same route every time. The JSON report contains frames, speed, detector p50/p95 latency, route, moods, ending,
+every director decision and (with `--llm`) the LLM fallback rate. This is the foundation for benchmarks and
+for comparing `--mode adaptive|fixed|random` on identical input.
 
 ## The story engine
 
@@ -203,6 +253,7 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 │   │   ├── affect.py        blendshapes -> valence/arousal -> mood scores
 │   │   ├── smoothing.py     rolling average, EMA, hysteresis gate
 │   │   └── motion.py        "walking" detection (face movement or frame difference)
+│   ├── pipeline.py          frame sources, capture + perception threads, metrics, degradation
 │   ├── story_tool.py        `narrative-story check|mermaid`
 │   ├── director/
 │   │   ├── graph.py         story graph, conditions, validation, JSON loading
@@ -214,6 +265,7 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 │   │   ├── window.py        background, particles, HUD, text
 │   │   └── player_animation.py
 │   └── data/stories/arin_adventure.json
+├── scripts/bench_pipeline.py
 ├── tests/
 └── docs/
 ```
@@ -232,6 +284,13 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 | `--interval S` | `3.5` | seconds between automatic scene changes |
 | `--min-confidence X` | `0.25` | confidence needed to advance |
 | `--motion-threshold X` | `0.03` (`face`) / `7.0` (`frame`) | walking sensitivity |
+| `--no-threads` | off | one loop instead of capture/detect/render threads (easier to debug) |
+| `--fps` / `--perception-hz` | `30` / `15` | render rate / max detector runs per second |
+| `--perception-width` | `640` | shrink frames to this width before detection (0 = off) |
+| `--video PATH` | none | play a video file instead of the webcam |
+| `--headless` | off | no window; run to the end of the story, video or `--max-frames` |
+| `--max-frames N` | none | stop after N frames (required for a headless camera run) |
+| `--report PATH` | none | write a JSON run report (headless) |
 | `--mood-bias X` | `0` | extra "happy" score on neutral/sad readings (0 = off; 0.25 = original prototype) |
 | `--mode` | `adaptive` | `adaptive`, or the `fixed` / `random` evaluation baselines |
 | `--llm MODEL` | off | rewrite scenes with a local Ollama model |
@@ -309,6 +368,8 @@ black .                   # format
 | Mood always `NEUTRAL` | Check `detector:` on screen. `haar` or `none` means no ML backend is active: install `.[mediapipe]`. Face a light source, move closer, and press **C** to recalibrate. |
 | "MediaPipe backend unavailable: could not download..." | You are offline or blocked. Download `face_landmarker.task` (URL is in the log message) and run with `--mp-model`. |
 | `pip` complains about `numpy` or OpenCV versions after installing MediaPipe | Use a fresh virtual environment. MediaPipe depends on `opencv-contrib-python`; if two OpenCV packages conflict, run `pip uninstall -y opencv-python opencv-contrib-python` then `pip install opencv-contrib-python`. |
+| Window freezes or FPS is low | Make sure threads are on (default). Lower `--perception-hz` or `--perception-width` to cut detector load; check the stats line for the detector's p95 time. |
+| "No frames received after 10 s" | The camera opened but delivered nothing: close other apps using it, try `--camera 1`, or replug it. |
 | Mood flickers or feels sluggish | Tune `hysteresis_frames`, `smoothing_window` and `affect_smoothing` in `config.py`. |
 | `--llm` does nothing | Check that Ollama is running (`ollama list`) and the model name matches. Look for "LLM stats" on exit: a fallback rate near 1.0 means requests are failing or timing out; try a smaller model or a larger `--llm-timeout`. |
 | Slow first frames (FER/DeepFace) | They load large models at startup. Use MediaPipe or `--backend haar`. |
@@ -338,7 +399,9 @@ black .                   # format
 - [x] Drama manager (tension curve, viewer-state adaptation, explainable decisions)
 - [x] Optional local-LLM narrator with prefetch, output checks and authored fallback
 - [x] `fixed` / `random` baseline modes for evaluation
-- [ ] Threaded perception (no frame stalls)
+- [x] Threaded capture/perception/render pipeline with frame dropping and downscaling
+- [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
+- [x] Headless / video replay with a JSON run report
 - [ ] Benchmarks, classifier evaluation and a small user study
 - [ ] CI
 
