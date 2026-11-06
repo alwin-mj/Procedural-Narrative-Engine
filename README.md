@@ -7,6 +7,7 @@
 **A real-time story that reads your face through a webcam and adapts as you feel.**
 Smile and the world warms up. Look sad and it turns gentle. No controller, just your expression.
 
+[![CI](https://github.com/alwin-mj/Procedural-Narrative-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/alwin-mj/Procedural-Narrative-Engine/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-vision-5C3EE8)
 ![License](https://img.shields.io/badge/license-MIT-00D2FF)
@@ -355,10 +356,34 @@ transparent PNG frames in a folder (loaded alphabetically, resized to 160x160) a
 
 ```bash
 pip install -e ".[dev]"
-pytest                    # unit tests
-ruff check .              # lint
-black .                   # format
+pytest                                                  # run the tests
+pytest --cov=narrative_engine --cov-report=term-missing # ...with a coverage report
+ruff check .                                            # lint
+black .                                                 # format
+pre-commit install                                      # optional: lint + format on every commit
 ```
+
+## Testing and CI
+
+Every push to `main` and every pull request runs [GitHub Actions](.github/workflows/ci.yml):
+
+| Job | What it does |
+|---|---|
+| Lint | `ruff check` and `black --check` |
+| Test (Python 3.9, 3.10, 3.11, 3.12) | full test suite with coverage (minimum 90% enforced), then CLI smoke tests |
+
+The tests need **no camera, no MediaPipe model, no TensorFlow and no Ollama**:
+
+| Area | How it is tested |
+|---|---|
+| Affect model, smoothing, hysteresis | Pure functions with synthetic inputs, plus a flicker-reduction check on noisy data |
+| Detector backends (MediaPipe, FER, DeepFace, Haar) | Fake models injected into the real fallback chain, including the DeepFace list/dict output and box-offset maths |
+| Story graph and drama manager | Valid and malformed stories, every route through the bundled story, tension-driven choices |
+| LLM narrator | A real local HTTP server standing in for Ollama, plus timeout, bad-output and circuit-breaker cases |
+| Threads and degradation | Fake cameras that fail, reconnect and stall; frame dropping; clean shutdown with no leaked threads |
+| Whole program | A recorded video replayed through `python -m narrative_engine --headless` in a subprocess, checking the JSON report |
+
+Run `pre-commit autoupdate` now and then to refresh the hook versions.
 
 ## Troubleshooting
 
@@ -402,8 +427,8 @@ black .                   # format
 - [x] Threaded capture/perception/render pipeline with frame dropping and downscaling
 - [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
 - [x] Headless / video replay with a JSON run report
+- [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.9 to 3.12), pre-commit
 - [ ] Benchmarks, classifier evaluation and a small user study
-- [ ] CI
 
 ## Team
 

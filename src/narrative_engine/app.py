@@ -483,8 +483,12 @@ class App:
                 self._write_report(report)
                 return 0
             if not source.open():
-                what = f"video {self.cfg.video}" if self.cfg.video else (
-                    f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
+                what = (
+                    f"video {self.cfg.video}"
+                    if self.cfg.video
+                    else (
+                        f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
+                    )
                 )
                 log.error("Cannot open %s", what)
                 return 1

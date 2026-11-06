@@ -77,7 +77,7 @@ class StorySession:
     def context(
         self,
         mood: str,
-        affect: Affect = Affect(),
+        affect: Optional[Affect] = None,
         state: Optional[StoryState] = None,
         pending: Optional[Affect] = None,
     ) -> Context:
@@ -86,6 +86,7 @@ class StorySession:
         ``pending`` adds a scene that has been played but not yet recorded, so the averages
         include it.
         """
+        affect = affect or Affect()
         st = state or self.state
         v_sum, a_sum, n = st.v_sum, st.a_sum, st.n_scenes
         if pending is not None:

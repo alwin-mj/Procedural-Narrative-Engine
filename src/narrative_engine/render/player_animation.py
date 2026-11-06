@@ -27,7 +27,7 @@ class PlayerAnimation:
     ) -> None:
         self.frames: List[np.ndarray] = []
         self.idx = 0
-        self.last_time = time.monotonic()
+        self.last_time = 0.0
         self.fps = fps
         self.size = size
 
@@ -49,6 +49,7 @@ class PlayerAnimation:
             log.warning("Sprite folder not found: %s (using the default orb)", folder_path)
 
         self.n = len(self.frames)
+        self.last_time = time.monotonic()  # start the animation clock once loading is done
 
     @property
     def has_frames(self) -> bool:

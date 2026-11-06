@@ -127,6 +127,8 @@ class Config:
             raise ValueError("affect_smoothing must be in (0, 1]")
         if self.calibration_s <= 0 or self.mood_dwell_s < 0:
             raise ValueError("calibration_s must be > 0 and mood_dwell_s >= 0")
+        if self.history_len < 1:
+            raise ValueError("history_len must be >= 1")
 
     @property
     def resolved_motion_threshold(self) -> float:
@@ -134,8 +136,6 @@ class Config:
         if self.motion_threshold is not None:
             return self.motion_threshold
         return DEFAULT_MOTION_THRESHOLD[self.motion_mode]
-        if self.history_len < 1:
-            raise ValueError("history_len must be >= 1")
 
 
 def build_parser() -> argparse.ArgumentParser:

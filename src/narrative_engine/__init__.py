@@ -1,3 +1,3 @@
 """Narrative Engine: a webcam-driven interactive story that adapts to your expression."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

@@ -69,9 +69,9 @@ class Decision:
 
 
 class DramaManager:
-    def __init__(self, session: StorySession, cfg: DramaConfig = DramaConfig()) -> None:
+    def __init__(self, session: StorySession, cfg: Optional[DramaConfig] = None) -> None:
         self.session = session
-        self.cfg = cfg
+        self.cfg = cfg = cfg or DramaConfig()
         self.curve = TensionCurve(cfg.curve)
         self._steps_total = max(1, session.graph.longest_path() - 1)
 
@@ -111,9 +111,8 @@ class DramaManager:
             "engaged": "viewer engaged -> follow the curve",
         }[state]
         others = ", ".join(f"{i}({t:.2f})" for i, t in options if i != to_id)
-        reason = (
-            f"{why}; want tension {desired:.2f}; {here.id}->{to_id} ({tension:.2f})"
-            + (f" over {others}" if others else "")
+        reason = f"{why}; want tension {desired:.2f}; {here.id}->{to_id} ({tension:.2f})" + (
+            f" over {others}" if others else ""
         )
         return Decision(here.id, to_id, mood, state, target, desired, options, reason)
 
