@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "narrative-engine"
-version = "0.5.0"
+version = "0.6.0"
 description = "Real-time interactive story that adapts to your facial expression via webcam."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,7 +25,7 @@ dependencies = [
 mediapipe = ["mediapipe"]
 fer = ["fer"]
 deepface = ["deepface"]
-dev = ["pytest>=7", "pytest-cov", "ruff", "black"]
+dev = ["pytest>=7", "pytest-cov", "pytest-timeout", "ruff", "black"]
 
 [project.scripts]
 narrative-engine = "narrative_engine.__main__:main"
@@ -40,6 +40,21 @@ narrative_engine = ["data/stories/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+timeout = 120  # needs pytest-timeout (in the dev extra); guards against a hung thread
+
+[tool.coverage.run]
+source = ["narrative_engine"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
 
 [tool.black]
 line-length = 100

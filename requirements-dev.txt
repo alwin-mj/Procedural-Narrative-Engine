@@ -1,5 +1,6 @@
 -r requirements.txt
 pytest>=7
 pytest-cov
+pytest-timeout
 ruff
 black
