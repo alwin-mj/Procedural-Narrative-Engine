@@ -33,8 +33,20 @@ def test_phase3_flags():
 def test_phase5_flags_and_defaults():
     c = Config()
     assert c.threaded and c.perception_hz == 15.0 and c.target_fps == 30.0
-    argv = ["--no-threads", "--perception-hz", "10", "--perception-width", "320", "--video",
-            "v.avi", "--headless", "--max-frames", "50", "--report", "r.json"]
+    argv = [
+        "--no-threads",
+        "--perception-hz",
+        "10",
+        "--perception-width",
+        "320",
+        "--video",
+        "v.avi",
+        "--headless",
+        "--max-frames",
+        "50",
+        "--report",
+        "r.json",
+    ]
     c = config_from_args(argv)
     assert not c.threaded and c.perception_hz == 10 and c.perception_max_width == 320
     assert c.headless and str(c.video) == "v.avi" and c.max_frames == 50
@@ -67,6 +79,18 @@ def test_phase4_flags():
         {"affect_smoothing": 0.0},
         {"calibration_s": 0},
         {"director_mode": "chaos"},
+        {"log_level": "LOUD"},
+        {"camera_index": -1},
+        {"smoothing_buffer": 0},
+        {"reaction_display_s": -1},
+        {"reaction_min_confidence": 2.0},
+        {"motion_threshold": -1.0},
+        {"hysteresis_margin": -0.1},
+        {"mood_dwell_s": -1},
+        {"no_face_pause_s": -1},
+        {"camera_retry_s": 0},
+        {"perception_max_width": -5},
+        {"history_len": 0},
         {"perception_hz": 0},
         {"target_fps": -1},
         {"stale_after_s": 3.0, "stale_drop_s": 2.0},

@@ -62,3 +62,42 @@ def test_observe_returns_none_without_a_face_and_timestamps_increase():
     for _ in range(5):
         backend.observe(frame)
     assert all(b > a for a, b in zip(calls, calls[1:]))
+
+
+def _with_cache(tmp_path):
+    orig = mb.default_model_path
+    mb.default_model_path = lambda: tmp_path / "cache" / "face_landmarker.task"
+    return orig
+
+
+def test_download_success_caches_the_file_and_is_reused(tmp_path):
+    src = tmp_path / "remote.task"
+    src.write_bytes(b"x" * (mb.MIN_MODEL_BYTES + 10))
+    orig = _with_cache(tmp_path)
+    try:
+        path = mb.ensure_model(url=src.as_uri())
+        assert path.is_file() and path.stat().st_size == src.stat().st_size
+        assert mb.ensure_model(url="file:///definitely/not/here") == path  # served from cache
+        assert not list(path.parent.glob("*.part"))
+    finally:
+        mb.default_model_path = orig
+
+
+def test_truncated_download_is_rejected_and_cleaned_up(tmp_path):
+    src = tmp_path / "tiny.task"
+    src.write_bytes(b"x" * 100)
+    orig = _with_cache(tmp_path)
+    try:
+        with pytest.raises(mb.ModelUnavailable):
+            mb.ensure_model(url=src.as_uri())
+    finally:
+        mb.default_model_path = orig
+    assert not list((tmp_path / "cache").glob("*"))
+
+
+def test_close_releases_the_landmarker():
+    closed = []
+    backend, _ = _backend_with(SimpleNamespace(face_landmarks=[], face_blendshapes=[]))
+    backend._landmarker.close = lambda: closed.append(True)
+    backend.close()
+    assert closed == [True]

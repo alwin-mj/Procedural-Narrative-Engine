@@ -79,6 +79,48 @@ def test_invalid_stories_are_rejected(mutate):
         StoryGraph.from_dict(data)
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(scenes="not a list"),
+        lambda d: d["scenes"].__setitem__(0, "not an object"),
+        lambda d: d["scenes"][0].update(tension="high"),
+        lambda d: d["scenes"][0].update(next=[{"when": {"valence": ">0"}}]),  # edge without 'to'
+        lambda d: d["scenes"][0].update(next=[{"to": "a"}, {"to": "b"}]),  # edge to itself
+        lambda d: d["scenes"][0].update(effects=["bad"]),
+        lambda d: d["scenes"][0].update(effects=[{"set_flags": "oops"}]),
+        lambda d: d["scenes"][0].update(effects=[{"relations": {"bob": "lots"}}]),
+        lambda d: d["scenes"][0].update(callbacks=[{"if": {}}]),  # no text
+        lambda d: d["scenes"][0].update(callbacks=[{"text": "  "}]),  # blank text
+        lambda d: d["scenes"][0].update(next=[{"to": "b", "when": "oops"}]),
+        lambda d: d["scenes"][0].update(next=[{"to": "b", "when": {"relation": "x"}}]),
+        lambda d: d["scenes"][0].update(next=[{"to": "b", "when": {"flag": []}}]),
+        lambda d: d["scenes"][0].update(next=[{"to": "b", "when": {"flag": [1]}}]),
+        lambda d: d["endings"].insert(0, {"id": "end", "text": "dup", "when": {"mood": "sad"}}),
+        lambda d: d["endings"][0].update(text=" "),
+        lambda d: d["endings"].__setitem__(0, {"id": "x"}),  # ending without text
+    ],
+)
+def test_more_malformed_stories_are_rejected_with_story_error(mutate):
+    data = valid()
+    mutate(data)
+    with pytest.raises(StoryError):
+        StoryGraph.from_dict(data)
+
+
+def test_non_object_story_and_legacy_bad_scene_are_rejected():
+    with pytest.raises(StoryError):
+        StoryGraph.from_dict([])
+    with pytest.raises(StoryError):
+        StoryGraph.from_dict({"scenes": [{"id": "a"}], "ending": "x"})  # no variants
+
+
+def test_path_lengths_and_terminals():
+    g = StoryGraph.from_dict(valid())
+    assert g.longest_path() == g.shortest_path() == 2 and g.terminals == ["b"]
+    assert g.longest_path("b") == 1
+
+
 def test_valid_minimal_story_loads():
     assert StoryGraph.from_dict(valid()).start == "a"
 
@@ -104,8 +146,9 @@ def test_numeric_conditions_and_ranges():
 
 
 def test_flag_visited_mood_and_relation_conditions():
-    ctx = Context(mood="happy", flags=frozenset({"pendant"}), visited=("a", "b"),
-                  relations={"smith": 2})
+    ctx = Context(
+        mood="happy", flags=frozenset({"pendant"}), visited=("a", "b"), relations={"smith": 2}
+    )
     assert parse_condition({"flag": "pendant"}, "t").test(ctx)
     assert not parse_condition({"not_flag": "pendant"}, "t").test(ctx)
     assert parse_condition({"visited": ["a", "b"]}, "t").test(ctx)

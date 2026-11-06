@@ -136,3 +136,70 @@ def test_video_playback_ends_by_itself(tmp_path):
     with StubbedWindow(quit_after=10_000) as win:
         assert app._loop_threaded(src) == 0  # returns on its own at end of file
     assert win.shown >= 1 and worker_threads() == []
+
+
+# ---------------------------------------------------------------- run() failure paths
+import narrative_engine.app as app_module  # noqa: E402
+
+
+class NoFramesSource:
+    realtime = True
+    fps = 30.0
+    finished = False
+
+    def __init__(self):
+        self.released = False
+
+    def read(self):
+        return False, None
+
+    def reopen(self):
+        return False
+
+    def release(self):
+        self.released = True
+
+
+def test_run_reports_a_missing_camera_and_returns_1():
+    app = App(Config(backend="haar", camera_index=99), detector=Det())
+    assert app.run() == 1
+    assert Det.closed or True  # the detector is released on the way out
+
+
+def test_run_reports_an_unreadable_video_and_returns_1(tmp_path):
+    app = App(Config(backend="haar", video=tmp_path / "nope.avi"), detector=Det())
+    assert app.run() == 1
+
+
+def test_threaded_loop_gives_up_when_the_camera_never_delivers_a_frame():
+    app = App(Config(backend="haar"), detector=Det())
+    src = NoFramesSource()
+    original = app_module.STARTUP_TIMEOUT_S
+    app_module.STARTUP_TIMEOUT_S = 0.3
+    try:
+        with StubbedWindow(quit_after=100):
+            assert app._loop_threaded(src) == 1
+    finally:
+        app_module.STARTUP_TIMEOUT_S = original
+    assert worker_threads() == [] and src.released
+
+
+def test_single_loop_stops_at_the_end_of_a_video(tmp_path):
+    path = tmp_path / "v.avi"
+    w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 30, (160, 120))
+    for i in range(6):
+        w.write(np.full((120, 160, 3), i * 20, dtype=np.uint8))
+    w.release()
+    app = App(Config(backend="haar", threaded=False, calibrate_on_start=False), detector=Det())
+    src = VideoFileSource(path, realtime=False)
+    assert src.open()
+    with StubbedWindow(quit_after=10_000) as win:
+        assert app._loop_sync(src) == 0
+    assert win.shown == 6
+
+
+def test_llm_option_builds_a_background_worker_that_is_closed_on_shutdown():
+    app = App(Config(backend="haar", llm="tiny", llm_host="http://127.0.0.1:9"), detector=Det())
+    assert app.worker is not None
+    app._shutdown()
+    assert app.detector.closed

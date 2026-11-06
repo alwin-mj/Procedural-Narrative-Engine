@@ -283,3 +283,58 @@ def test_pipeline_reports_camera_loss_and_recovery():
     src.reopen_ok = True  # plug back in
     assert wait_for(lambda: pipe.camera_ok)
     assert pipe.stop()
+
+
+# ---------------------------------------------------------------- CameraSource / pacing
+from narrative_engine.pipeline import CameraSource  # noqa: E402
+
+
+class FakeCap:
+    def __init__(self, frames):
+        self.frames, self.released = list(frames), False
+
+    def read(self):
+        return (True, self.frames.pop(0)) if self.frames else (False, None)
+
+    def isOpened(self):
+        return True
+
+    def release(self):
+        self.released = True
+
+
+def test_camera_source_without_a_camera_fails_cleanly():
+    cam = CameraSource(index=99)
+    assert cam.read() == (False, None)  # not opened yet
+    assert cam.open() is False  # no such device
+    assert cam.reopen() is False
+    cam.release()
+    cam.release()  # idempotent
+
+
+def test_camera_source_mirrors_frames_and_reports_failed_reads():
+    frame = np.zeros((4, 6, 3), dtype=np.uint8)
+    frame[:, 0] = 255  # bright left edge
+    cam = CameraSource(mirror=True)
+    cam._cap = FakeCap([frame])
+    ok, out = cam.read()
+    assert ok and out[:, -1].min() == 255 and out[:, 0].max() == 0  # flipped left-right
+    assert cam.read() == (False, None)
+    raw = CameraSource(mirror=False)
+    raw._cap = FakeCap([frame])
+    assert raw.read()[1][:, 0].min() == 255
+    cap = FakeCap([])
+    raw._cap = cap
+    raw.release()
+    assert cap.released and raw._cap is None
+
+
+def test_realtime_video_playback_is_paced_to_the_files_frame_rate(tmp_path):
+    path = tmp_path / "v.avi"
+    write_video(path, frames=6, fps=50)
+    src = VideoFileSource(path, realtime=True)
+    assert src.open()
+    t0 = time.monotonic()
+    while src.read()[0]:
+        pass
+    assert time.monotonic() - t0 >= 0.08  # 6 frames at 50 fps take at least ~0.1 s

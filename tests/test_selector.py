@@ -1,6 +1,18 @@
 from narrative_engine.director import choose_advance_emotion as choose
 
 
+def test_mood_bias_falls_back_to_uplift_when_there_is_no_happy_score():
+    scores = {"uplift": 0.3, "sad": 0.2, "neutral": 0.5}
+    assert choose(scores, None, None, mood_bias=0.0) == "neutral"
+    assert choose(scores, None, None, mood_bias=0.4) == "uplift"
+
+
+def test_first_mood_is_returned_when_nothing_is_chosen_yet():
+    scores = {"happy": 0.2, "uplift": 0.1, "sad": 0.1, "neutral": 0.6}
+    assert choose(scores, None, None) == "neutral"
+    assert choose({"sad": 1.0}, "sad", {"sad": 0.9}) == "sad"  # single mood, nothing to switch to
+
+
 def test_empty_scores_fall_back():
     assert choose({}, None, None) == "neutral"
     assert choose({}, "happy", None) == "happy"
