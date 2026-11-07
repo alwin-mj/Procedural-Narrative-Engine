@@ -77,6 +77,14 @@ class Config:
     max_frames: Optional[int] = None  # stop after this many frames (required for headless camera)
     report: Optional[Path] = None  # write a JSON run report here (headless)
 
+    # --- evaluation / user study ---
+    telemetry: Optional[Path] = None  # directory for JSONL session logs (None = off)
+    telemetry_hz: float = 15.0  # max logged readings per second (0 = every reading)
+    participant: str = ""  # anonymous id recorded in telemetry and reports
+    study: bool = False  # blind UI: hide the director note, stats and detector labels
+    seed: Optional[int] = None  # seeds the random baseline mode (reproducible runs)
+    replay: Optional[Path] = None  # re-run the director on a recorded telemetry session
+
     # --- misc ---
     log_level: str = "INFO"
 
@@ -119,8 +127,16 @@ class Config:
             raise ValueError("invalid no_face_pause_s / camera_lost_after / camera_retry_s")
         if self.max_frames is not None and self.max_frames < 1:
             raise ValueError("max_frames must be >= 1")
-        if self.headless and self.video is None and self.max_frames is None:
-            raise ValueError("--headless without --video needs --max-frames")
+        if self.headless and self.video is None and self.replay is None and self.max_frames is None:
+            raise ValueError("--headless without --video or --replay needs --max-frames")
+        if self.telemetry_hz < 0:
+            raise ValueError("telemetry_hz must be >= 0")
+        if self.participant and not all(c.isalnum() or c in "_-" for c in self.participant):
+            raise ValueError("participant may only contain letters, digits, '_' and '-'")
+        if self.replay is not None and not self.headless:
+            raise ValueError("--replay runs without a window; it implies --headless")
+        if self.replay is not None and self.video is not None:
+            raise ValueError("--replay and --video cannot be combined")
         if self.hysteresis_margin < 0 or self.hysteresis_frames < 1:
             raise ValueError("hysteresis_margin must be >= 0 and hysteresis_frames >= 1")
         if not 0.0 < self.affect_smoothing <= 1.0:
@@ -225,6 +241,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--headless", action="store_true", help="no window; run until the end")
     p.add_argument("--max-frames", type=int, default=None, help="stop after this many frames")
     p.add_argument("--report", type=Path, default=None, help="write a JSON run report (headless)")
+    p.add_argument(
+        "--telemetry",
+        nargs="?",
+        const=Path("logs"),
+        default=None,
+        type=Path,
+        metavar="DIR",
+        help="write a JSONL session log to DIR (default: logs/). No video is ever recorded",
+    )
+    p.add_argument(
+        "--telemetry-hz", type=float, default=d.telemetry_hz, help="max logged readings per second"
+    )
+    p.add_argument("--participant", default="", metavar="ID", help="anonymous participant id")
+    p.add_argument("--study", action="store_true", help="blind UI for user studies")
+    p.add_argument("--seed", type=int, default=None, help="seed for --mode random")
+    p.add_argument(
+        "--replay",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="re-run the director on a telemetry log (no camera, implies --headless)",
+    )
     p.add_argument("--log-level", choices=LOG_LEVELS, default=d.log_level, help="log verbosity")
     return p
 
@@ -246,12 +284,18 @@ def config_from_args(argv: Optional[Sequence[str]] = None) -> Config:
         calibrate_on_start=not a.no_calibration,
         mood_bias=a.mood_bias,
         director_mode=a.mode,
+        telemetry=a.telemetry,
+        telemetry_hz=a.telemetry_hz,
+        participant=a.participant,
+        study=a.study,
+        seed=a.seed,
+        replay=a.replay,
         threaded=not a.no_threads,
         target_fps=a.fps,
         perception_hz=a.perception_hz,
         perception_max_width=a.perception_width,
         video=a.video,
-        headless=a.headless,
+        headless=a.headless or a.replay is not None,
         max_frames=a.max_frames,
         report=a.report,
         llm=a.llm,

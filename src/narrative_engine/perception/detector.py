@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
@@ -126,11 +127,16 @@ class EmotionDetector:
         self.last = "neutral"
         self.last_conf = 0.0
         self.active_backend = "none"  # which backend produced the latest result
+        # Per-stage timings (ms) of the most recent frame, for benchmarking:
+        # face_ms (Haar face search), infer_ms (backend inference), smooth_ms (smoothing).
+        self.last_timings: Dict[str, float] = {"face_ms": 0.0, "infer_ms": 0.0, "smooth_ms": 0.0}
 
         self._face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
-        self._smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
+        self._smile_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_smile.xml"
+        )
 
         self._mp: Any = None
         self._fer: Any = None
@@ -208,6 +214,13 @@ class EmotionDetector:
                 log.debug("MediaPipe close failed: %s", exc)
 
     # ------------------------------------------------------------------ calibration
+    @property
+    def loaded_backends(self) -> List[str]:
+        """Names of the backends that actually loaded (``haar`` is always available)."""
+        names = [n for n, obj in (("mediapipe", self._mp), ("fer", self._fer),
+                                  ("deepface", self._deepface)) if obj is not None]
+        return names + ["haar"]
+
     @property
     def supports_calibration(self) -> bool:
         """Calibration needs blendshape features, which only the MediaPipe backend provides."""
@@ -389,13 +402,18 @@ class EmotionDetector:
         if frame is None:
             return _no_face()
 
+        t0 = time.perf_counter()
         if self._mp is not None:
             result = self._run_mediapipe(frame)
             if result is not None:
+                # MediaPipe finds the face and reads expressions in one model: all "infer".
+                self.last_timings.update(face_ms=0.0, infer_ms=(time.perf_counter() - t0) * 1e3)
                 return result
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face = self._find_face(gray)
+        t_face = time.perf_counter()
+        self.last_timings["face_ms"] = (t_face - t0) * 1e3
 
         if face is not None:
             padded = self._padded(face, frame.shape)
@@ -407,19 +425,27 @@ class EmotionDetector:
 
         rgb_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
+        result = None
         if self._fer is not None:
             result = self._run_fer(rgb_crop, gray, face, padded, origin)
-            if result is not None:
-                return result
-        if self._deepface is not None:
+        if result is None and self._deepface is not None:
             result = self._run_deepface(rgb_crop, gray, face, padded)
-            if result is not None:
-                return result
-        return self._run_haar(gray, face, padded)
+        if result is None:
+            result = self._run_haar(gray, face, padded)
+        self.last_timings["infer_ms"] = (time.perf_counter() - t_face) * 1e3
+        return result
 
     def detect_stable(self, frame: Optional[np.ndarray]) -> Detection:
         """Detection smoothed over time (rolling average, hysteresis, EMA valence/arousal)."""
-        det = self.detect(frame)
+        return self.stabilize(self.detect(frame))
+
+    def stabilize(self, det: Detection) -> Detection:
+        """Apply temporal smoothing to a raw detection.
+
+        Split out of :meth:`detect_stable` so an evaluation can get the raw and the smoothed
+        result from a single model inference.
+        """
+        t0 = time.perf_counter()
         conf = min(1.0, max(0.0, float(det.confidence)))
         with self._state_lock:
             candidate, cand_conf, avg = self.smoother.update(det.scores, det.emotion, conf)
@@ -433,4 +459,5 @@ class EmotionDetector:
 
             self.last = mood
             self.last_conf = mood_conf
+        self.last_timings["smooth_ms"] = (time.perf_counter() - t0) * 1e3
         return Detection(mood, mood_conf, det.box, avg, valence, arousal)

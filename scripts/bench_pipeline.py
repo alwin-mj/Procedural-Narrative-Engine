@@ -60,23 +60,15 @@ def run_single(delay_s: float, seconds: float) -> dict:
         _, frame = cam.read()
         app.step(frame, _SYNC)
         frames += 1
-    return {
-        "mode": "single loop",
-        "render_fps": frames / seconds,
-        "detector_hz": app.metrics.snapshot()["detector_hz"],
-    }
+    return {"mode": "single loop", "render_fps": frames / seconds,
+            "detector_hz": app.metrics.snapshot()["detector_hz"]}
 
 
 def run_threaded(delay_s: float, seconds: float) -> dict:
     cfg = Config(backend="haar", calibrate_on_start=False)
     app = App(cfg, detector=SlowDetector(delay_s))
-    pipe = Pipeline(
-        SyntheticCamera(),
-        app.detector,
-        hz=cfg.perception_hz,
-        max_width=cfg.perception_max_width,
-        metrics=app.metrics,
-    )
+    pipe = Pipeline(SyntheticCamera(), app.detector, hz=cfg.perception_hz,
+                    max_width=cfg.perception_max_width, metrics=app.metrics)
     pipe.start()
     while pipe.frame() is None:
         time.sleep(0.01)
@@ -88,11 +80,8 @@ def run_threaded(delay_s: float, seconds: float) -> dict:
         frames += 1
         time.sleep(max(0.0, interval - (time.perf_counter() - t0)))
     pipe.stop()
-    return {
-        "mode": "threaded",
-        "render_fps": frames / seconds,
-        "detector_hz": app.metrics.snapshot()["detector_hz"],
-    }
+    return {"mode": "threaded", "render_fps": frames / seconds,
+            "detector_hz": app.metrics.snapshot()["detector_hz"]}
 
 
 def main() -> None:

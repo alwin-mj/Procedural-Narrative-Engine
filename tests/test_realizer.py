@@ -37,14 +37,8 @@ def test_clean_output_without_protagonist_does_not_require_a_name():
 
 
 def test_prompt_contains_the_facts_and_tone():
-    req = BeatRequest(
-        authored="He buys a bright orange pouch.",
-        mood="sad",
-        title="T",
-        protagonist="Arin",
-        location="market",
-        recent=("one", "two", "three", "four"),
-    )
+    req = BeatRequest(authored="He buys a bright orange pouch.", mood="sad", title="T",
+                      protagonist="Arin", location="market", recent=("one", "two", "three", "four"))
     p = build_prompt(req)
     assert "He buys a bright orange pouch." in p and "Arin" in p and "market" in p
     assert "comforting" in p and "four" in p and "one" not in p.split("Story so far:")[1][:30]

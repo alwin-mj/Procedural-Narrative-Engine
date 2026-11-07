@@ -241,6 +241,7 @@ class GameWindow:
         arousal: float = 0.0,
         director_note: str = "",
         stats: str = "",
+        debug: bool = True,
     ) -> np.ndarray:
         canvas = self._background(emo)
         self._draw_particles(canvas, emo)
@@ -277,7 +278,7 @@ class GameWindow:
             (220, 220, 220),
             1,
         )
-        if backend:
+        if backend and debug:
             cv2.putText(
                 canvas,
                 f"detector: {backend}",
@@ -287,6 +288,8 @@ class GameWindow:
                 (200, 200, 200),
                 1,
             )
+        if not debug:  # study mode: nothing that reveals how the director works
+            return canvas
         self._draw_affect_pad(canvas, web_x, status_y + 62, 80, valence, arousal)
         if director_note:
             self._draw_director_note(canvas, director_note)

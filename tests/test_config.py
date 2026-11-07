@@ -33,20 +33,8 @@ def test_phase3_flags():
 def test_phase5_flags_and_defaults():
     c = Config()
     assert c.threaded and c.perception_hz == 15.0 and c.target_fps == 30.0
-    argv = [
-        "--no-threads",
-        "--perception-hz",
-        "10",
-        "--perception-width",
-        "320",
-        "--video",
-        "v.avi",
-        "--headless",
-        "--max-frames",
-        "50",
-        "--report",
-        "r.json",
-    ]
+    argv = ["--no-threads", "--perception-hz", "10", "--perception-width", "320", "--video",
+            "v.avi", "--headless", "--max-frames", "50", "--report", "r.json"]
     c = config_from_args(argv)
     assert not c.threaded and c.perception_hz == 10 and c.perception_max_width == 320
     assert c.headless and str(c.video) == "v.avi" and c.max_frames == 50

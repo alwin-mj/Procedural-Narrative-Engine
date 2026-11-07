@@ -22,6 +22,8 @@ class EmotionSmoother:
             raise ValueError("window cannot exceed buffer_size")
         self._buffer: Deque[Mapping[str, float]] = deque(maxlen=buffer_size)
         self._window = window
+        self.buffer_size = buffer_size
+        self.window = window
 
     def reset(self) -> None:
         self._buffer.clear()

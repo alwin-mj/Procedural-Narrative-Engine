@@ -36,9 +36,8 @@ def result(clock, fid, box=BOX, v=0.8, a=0.4, age=0.0):
 
 def build(**cfg):
     clock = Clock()
-    app = App(
-        Config(backend="haar", calibrate_on_start=False, **cfg), detector=NeverCalled(), clock=clock
-    )
+    app = App(Config(backend="haar", calibrate_on_start=False, **cfg),
+              detector=NeverCalled(), clock=clock)
     seen = []
 
     def record(frame, emo, conf, box, active, text, *a, **k):

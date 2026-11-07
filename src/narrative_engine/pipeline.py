@@ -242,9 +242,8 @@ def downscale(frame: Frame, max_width: int) -> Tuple[Frame, float]:
     if max_width <= 0 or w <= max_width:
         return frame, 1.0
     scale = max_width / w
-    small = cv2.resize(
-        frame, (max_width, int(round(frame.shape[0] * scale))), interpolation=cv2.INTER_AREA
-    )
+    small = cv2.resize(frame, (max_width, int(round(frame.shape[0] * scale))),
+                       interpolation=cv2.INTER_AREA)
     return small, scale
 
 
@@ -252,11 +251,8 @@ def rescale_box(box: Optional[Box], factor: float) -> Optional[Box]:
     if box is None or factor == 1.0:
         return box
     x, y, w, h = box
-    return (
-        int(round(x * factor)),
-        int(round(y * factor)),
-        int(round(w * factor)),
-        int(round(h * factor)),
+    return int(round(x * factor)), int(round(y * factor)), int(round(w * factor)), int(
+        round(h * factor)
     )
 
 

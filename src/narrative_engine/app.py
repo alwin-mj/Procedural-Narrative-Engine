@@ -8,11 +8,13 @@ import math
 import random
 import time
 from collections import deque
+from datetime import datetime
 from typing import Any, Callable, Deque, Dict, List, Optional, Set
 
 import cv2
 import numpy as np
 
+from . import __version__
 from .config import MOODS, Config
 from .director import (
     Affect,
@@ -25,6 +27,7 @@ from .director import (
 )
 from .director.realizer import BeatRequest, LLMRealizer, RealizerWorker
 from .perception import Detection, EmotionDetector, FaceMotion, MotionDetector
+from .telemetry import ReplayDetector, ReplaySource, TelemetryWriter, read_session, tick_record
 from .pipeline import (
     CameraSource,
     Metrics,
@@ -80,7 +83,12 @@ class App:
     ) -> None:
         self.cfg = cfg
         self._clock = clock
-        self._rng = rng or random.Random()
+        self._rng = rng or random.Random(cfg.seed)
+        self._replay_ticks = None
+        if cfg.replay is not None and detector is None:
+            session = read_session(cfg.replay)
+            self._replay_ticks = session.ticks
+            detector = ReplayDetector(self._replay_ticks)
         self.graph: StoryGraph = story or load_story(cfg.story_path)
         self.session = StorySession(self.graph)
         self.drama = DramaManager(self.session)
@@ -115,6 +123,14 @@ class App:
         self._recent: Deque[str] = deque(maxlen=3)
 
         self.metrics = Metrics()
+        self.telemetry: Optional[TelemetryWriter] = None
+        if cfg.telemetry is not None:
+            self.telemetry = TelemetryWriter(cfg.telemetry, self._telemetry_meta())
+        self._t0: Optional[float] = None
+        self._last_tick_t = -1e9
+        self._started_once = False
+        self._paused_reason: Optional[str] = None
+        self._telemetry_closed = False
         self.history: Deque[str] = deque(maxlen=cfg.history_len)
         self.active = False
         self.last_decision: Optional[Decision] = None
@@ -165,6 +181,61 @@ class App:
             return self._random_mood
         return emo
 
+    # ------------------------------------------------------------------ telemetry
+    def _telemetry_meta(self) -> Dict[str, Any]:
+        cfg = self.cfg
+        return {
+            "version": __version__,
+            "participant": cfg.participant,
+            "mode": cfg.director_mode,
+            "backend_requested": cfg.backend,
+            "story": self.graph.title,
+            "seed": cfg.seed,
+            "interval_s": cfg.advance_interval_s,
+            "mood_bias": cfg.mood_bias,
+            "llm": cfg.llm,
+            "study": cfg.study,
+            "replay_of": str(cfg.replay) if cfg.replay else None,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+        }
+
+    def _tel(self, kind: str, now: float, **data: Any) -> None:
+        if self.telemetry is None:
+            return
+        if self._t0 is None:
+            self._t0 = now
+        self.telemetry.write(kind, now - self._t0, **data)
+
+    def _tel_tick(self, det: Detection, now: float) -> None:
+        if self.telemetry is None:
+            return
+        if self._t0 is None:
+            self._t0 = now
+        t = now - self._t0
+        min_gap = 1.0 / self.cfg.telemetry_hz if self.cfg.telemetry_hz > 0 else 0.0
+        if t - self._last_tick_t + 1e-9 < min_gap:
+            return
+        self._last_tick_t = t
+        self.telemetry.write("tick", t, **tick_record(det))
+
+    def _close_telemetry(self, now: float) -> None:
+        """Write the closing record once and release the file."""
+        if self.telemetry is None or self._telemetry_closed:
+            return
+        self._telemetry_closed = True
+        s = self.session
+        self._tel(
+            "session_end",
+            now,
+            route=list(s.state.visited),
+            moods=list(s.state.moods),
+            finished=s.finished,
+            ending=s.ending_id,
+            metrics=self.metrics.snapshot(),
+            llm=self.worker.stats() if self.worker is not None else None,
+        )
+        self.telemetry.close()
+
     def _advance(self, now: float) -> None:
         s = self.session
         if s.finished:
@@ -201,8 +272,23 @@ class App:
         self._acc_v = self._acc_a = 0.0
         self._acc_n = 0
         log.info("director: %s", decision.reason)
+        self._tel(
+            "scene",
+            now,
+            id=s.current_id,
+            frm=decision.from_id,
+            to=decision.to_id,
+            mood=mood,
+            state=decision.state,
+            target=round(decision.target, 3),
+            desired=round(decision.desired, 3),
+            v=round(affect.valence, 3),
+            a=round(affect.arousal, 3),
+            reason=decision.reason,
+        )
         if s.finished:
             log.info("ending: %s", s.ending_id)
+            self._tel("ending", now, id=s.ending_id)
         self._prefetch(self._display_mood(self._latest_emo), affect)
 
     def _start(self, now: float) -> None:
@@ -216,6 +302,12 @@ class App:
         self._acc_n = 0
         self._reaction_until = 0.0
         self._shown_emo = self._latest_emo
+        self._tel("restart" if self._started_once else "start", now)
+        self._started_once = True
+        self._tel(
+            "scene", now, id=self.session.current_id, frm=None, to=self.session.current_id,
+            mood="neutral", reason="start",
+        )
         self._recent.clear()
         self._requested.clear()
         if self.cfg.director_mode == "random":
@@ -283,6 +375,7 @@ class App:
 
     def _finish_calibration(self, now: float) -> None:
         ok = self.detector.finish_calibration()
+        self._tel("calibration", now, ok=bool(ok))
         self._calib_until = None
         self._last_advance = now
         self._set_notice("Calibrated!" if ok else "No face seen. Press C to retry", now)
@@ -304,6 +397,7 @@ class App:
         ):
             self._shown_emo = emo
             self._reaction_until = now + self.cfg.reaction_display_s
+            self._tel("reaction", now, mood=emo)
 
     def _director_note(self) -> str:
         if not self.active:
@@ -372,6 +466,7 @@ class App:
             self._latest_scores, self._latest_emo = scores, emo
             self._latest_affect = Affect(det.valence, det.arousal)
             self.history.append(emo)
+            self._tel_tick(det, now)
 
         face_seen = box is not None and camera_ok
         if face_seen:
@@ -388,6 +483,11 @@ class App:
         if calibrating and now >= self._calib_until:  # type: ignore[operator]
             self._finish_calibration(now)
             calibrating = False
+
+        reason = "camera" if not camera_ok else "face" if face_lost else None
+        if self.active and reason != self._paused_reason:
+            self._tel("pause" if reason else "resume", now, why=reason or self._paused_reason)
+            self._paused_reason = reason
 
         if not calibrating:
             if self.active and camera_ok and fresh and box is not None:
@@ -421,6 +521,7 @@ class App:
         if not render:
             return None
         stats = self.metrics.hud_text() + (" | LAGGING" if self._lagging else "")
+        debug = not cfg.study
         return self.window.render(
             frame,
             emo,
@@ -433,8 +534,9 @@ class App:
             backend=getattr(self.detector, "active_backend", ""),
             valence=det.valence,
             arousal=det.arousal,
-            director_note=self._director_note(),
-            stats=stats,
+            director_note=self._director_note() if debug else "",
+            stats=stats if debug else "",
+            debug=debug,
         )
 
     def handle_key(self, key: int) -> bool:
@@ -453,6 +555,8 @@ class App:
     # ------------------------------------------------------------------ running
     def _make_source(self) -> Any:
         cfg = self.cfg
+        if self._replay_ticks is not None:
+            return ReplaySource(self._replay_ticks)
         if cfg.video:
             return VideoFileSource(cfg.video, realtime=not cfg.headless)
         return CameraSource(cfg.camera_index)
@@ -483,12 +587,8 @@ class App:
                 self._write_report(report)
                 return 0
             if not source.open():
-                what = (
-                    f"video {self.cfg.video}"
-                    if self.cfg.video
-                    else (
-                        f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
-                    )
+                what = f"video {self.cfg.video}" if self.cfg.video else (
+                    f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
                 )
                 log.error("Cannot open %s", what)
                 return 1
@@ -594,19 +694,28 @@ class App:
                 if not ok or frame is None:
                     break
                 if sim is not None:
-                    sim.t = n / fps
+                    recorded = getattr(source, "current_time", None)
+                    sim.t = recorded if recorded is not None else n / fps
                 self.step(frame, _SYNC, True, render=False)
                 n += 1
                 if self.session.finished:
                     break
         finally:
             source.release()
-        return self._report(n, time.perf_counter() - wall0, n / fps if sim else None)
+        duration = getattr(source, "duration", None)
+        report = self._report(
+            n, time.perf_counter() - wall0, (duration or n / fps) if sim else None
+        )
+        self._close_telemetry(self._clock())
+        report["telemetry"] = str(self.telemetry.path) if self.telemetry else None
+        return report
 
     def _report(self, frames: int, wall_s: float, sim_s: Optional[float]) -> Dict[str, Any]:
         s = self.session
         return {
             "mode": self.cfg.director_mode,
+            "participant": self.cfg.participant,
+            "seed": self.cfg.seed,
             "backend": getattr(self.detector, "active_backend", ""),
             "frames": frames,
             "sim_duration_s": round(sim_s, 2) if sim_s is not None else None,
@@ -641,6 +750,7 @@ class App:
         if self._closed:
             return
         self._closed = True
+        self._close_telemetry(self._clock())
         close = getattr(self.detector, "close", None)
         if callable(close):
             close()

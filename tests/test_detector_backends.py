@@ -10,15 +10,8 @@ from narrative_engine.perception import EmotionDetector
 from narrative_engine.perception.detector import _fold_scores
 
 FRAME = np.full((240, 320, 3), 90, dtype=np.uint8)
-FER_EMOTIONS = {
-    "angry": 0.10,
-    "disgust": 0.05,
-    "fear": 0.05,
-    "happy": 0.55,
-    "sad": 0.05,
-    "surprise": 0.05,
-    "neutral": 0.15,
-}
+FER_EMOTIONS = {"angry": 0.10, "disgust": 0.05, "fear": 0.05, "happy": 0.55, "sad": 0.05,
+                "surprise": 0.05, "neutral": 0.15}
 
 
 class FakeFER:
@@ -48,15 +41,8 @@ def fer_result(emotions=None, box=(10, 10, 80, 80)):
 
 
 def deepface_result(dominant="happy", pct=None):
-    emotions = pct or {
-        "angry": 2.0,
-        "disgust": 1.0,
-        "fear": 2.0,
-        "happy": 80.0,
-        "sad": 5.0,
-        "surprise": 5.0,
-        "neutral": 5.0,
-    }
+    emotions = pct or {"angry": 2.0, "disgust": 1.0, "fear": 2.0, "happy": 80.0, "sad": 5.0,
+                       "surprise": 5.0, "neutral": 5.0}
     return {"emotion": emotions, "dominant_emotion": dominant}
 
 
@@ -131,10 +117,8 @@ def test_deepface_list_output_is_handled():
 
 
 def test_deepface_dict_output_still_works_and_uses_the_padded_box():
-    det = detector(
-        deepface=FakeDeepFace(deepface_result("sad", {"sad": 70.0, "neutral": 30.0})),
-        face=lambda gray: (60, 50, 100, 100),
-    )
+    det = detector(deepface=FakeDeepFace(deepface_result("sad", {"sad": 70.0, "neutral": 30.0})),
+                   face=lambda gray: (60, 50, 100, 100))
     out = det.detect(FRAME)
     assert out.emotion == "sad" and out.valence < 0 and out.box == (48, 38, 124, 124)
 
@@ -266,10 +250,8 @@ def test_deepface_loader_returns_the_class():
 
 
 def test_explicit_backend_choices_load_only_what_was_asked_for():
-    with FakeModule(
-        fer=types.SimpleNamespace(FER=lambda mtcnn: FakeFER()),
-        deepface=types.SimpleNamespace(DeepFace=FakeDeepFace()),
-    ):
+    with FakeModule(fer=types.SimpleNamespace(FER=lambda mtcnn: FakeFER()),
+                    deepface=types.SimpleNamespace(DeepFace=FakeDeepFace())):
         assert EmotionDetector(backend="fer")._deepface is None
         assert EmotionDetector(backend="deepface")._fer is None
         both = EmotionDetector(backend="auto")  # MediaPipe model is unavailable offline

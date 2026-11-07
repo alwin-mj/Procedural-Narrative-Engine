@@ -98,26 +98,11 @@ def test_fixed_and_adaptive_modes_can_be_compared_on_the_same_recording(tmp_path
     write_video(video, 300)
     routes = {}
     for mode in ("adaptive", "fixed"):
-        cfg = Config(
-            backend="haar",
-            video=video,
-            headless=True,
-            calibrate_on_start=False,
-            advance_interval_s=1.0,
-            director_mode=mode,
-        )
+        cfg = Config(backend="haar", video=video, headless=True, calibrate_on_start=False,
+                     advance_interval_s=1.0, director_mode=mode)
         app = App(cfg, detector=FaceDetector())
         routes[mode] = app.run_headless(VideoFileSource(video))["route"]
     assert all(r[0] == "wake" and r[-1] == "lighthouse" for r in routes.values())  # both finish
-    again = App(
-        Config(
-            backend="haar",
-            video=video,
-            headless=True,
-            calibrate_on_start=False,
-            advance_interval_s=1.0,
-            director_mode="fixed",
-        ),
-        detector=FaceDetector(),
-    )
+    again = App(Config(backend="haar", video=video, headless=True, calibrate_on_start=False,
+                       advance_interval_s=1.0, director_mode="fixed"), detector=FaceDetector())
     assert again.run_headless(VideoFileSource(video))["route"] == routes["fixed"]  # deterministic

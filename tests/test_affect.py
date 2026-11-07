@@ -9,21 +9,12 @@ from narrative_engine.perception.affect import (
     scores_from_affect,
 )
 
-SMILE = {
-    "mouthSmileLeft": 0.7,
-    "mouthSmileRight": 0.7,
-    "cheekSquintLeft": 0.4,
-    "cheekSquintRight": 0.4,
-}
-FROWN = {"mouthFrownLeft": 0.5, "mouthFrownRight": 0.5, "browDownLeft": 0.4, "browDownRight": 0.4}
-SURPRISE = {
-    "eyeWideLeft": 0.6,
-    "eyeWideRight": 0.6,
-    "browInnerUp": 0.6,
-    "browOuterUpLeft": 0.5,
-    "browOuterUpRight": 0.5,
-    "jawOpen": 0.5,
-}
+SMILE = {"mouthSmileLeft": 0.7, "mouthSmileRight": 0.7, "cheekSquintLeft": 0.4,
+         "cheekSquintRight": 0.4}
+FROWN = {"mouthFrownLeft": 0.5, "mouthFrownRight": 0.5, "browDownLeft": 0.4,
+         "browDownRight": 0.4}
+SURPRISE = {"eyeWideLeft": 0.6, "eyeWideRight": 0.6, "browInnerUp": 0.6,
+            "browOuterUpLeft": 0.5, "browOuterUpRight": 0.5, "jawOpen": 0.5}
 
 
 def top(blend, baseline=None):

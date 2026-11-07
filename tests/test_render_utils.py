@@ -30,15 +30,6 @@ def test_window_renders_expected_shape_for_every_mood():
     for mood in ("happy", "uplift", "sad", "neutral", "unknown"):
         out = win.render(frame, mood, 0.5, (10, 10, 40, 40), True, "hello world", ["happy"] * 5)
         assert out.shape == (240, 320, 3) and out.dtype == np.uint8
-    out = win.render(
-        None,
-        "neutral",
-        0.0,
-        None,
-        False,
-        "",
-        None,
-        backend="haar",
-        stats="30 fps | detector 15 Hz | p95 12 ms",
-    )
+    out = win.render(None, "neutral", 0.0, None, False, "", None, backend="haar",
+                     stats="30 fps | detector 15 Hz | p95 12 ms")
     assert out.shape == (240, 320, 3)

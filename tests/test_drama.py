@@ -2,7 +2,6 @@ import random
 
 import pytest
 
-from narrative_engine.config import MOODS
 from narrative_engine.director import (
     Affect,
     DramaManager,
@@ -11,6 +10,7 @@ from narrative_engine.director import (
     TensionCurve,
     load_story,
 )
+from narrative_engine.config import MOODS
 
 
 def v(tag):
@@ -89,10 +89,8 @@ def test_fixed_and_random_baselines():
     m = DramaManager(StorySession(g))
     assert m.decide_fixed("neutral", Affect(0, 0.9)).to_id == "calm"
     rng = random.Random(1)
-    picks = {
-        DramaManager(StorySession(g)).decide_random("neutral", Affect(), rng).to_id
-        for _ in range(40)
-    }
+    picks = {DramaManager(StorySession(g)).decide_random("neutral", Affect(), rng).to_id
+             for _ in range(40)}
     assert picks == {"calm", "wild"}
 
 
