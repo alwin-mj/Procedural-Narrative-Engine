@@ -1,0 +1,30 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='466' height='466' viewBox='0 0 466 466' font-family='Helvetica,Arial,sans-serif' font-size='13'>
+<rect width='466' height='466' fill='white'/>
+<text x='233.0' y='28' text-anchor='middle' font-size='16' font-weight='bold'>haar: confusion (detected frames)</text>
+<text x='278.0' y='52' text-anchor='middle' fill='#444'>predicted</text>
+<text x='20' y='238.0' text-anchor='middle' fill='#444' transform='rotate(-90 20 238.0)'>true</text>
+<text x='152.0' y='62' text-anchor='middle'>happy</text>
+<text x='236.0' y='62' text-anchor='middle'>uplift</text>
+<text x='320.0' y='62' text-anchor='middle'>sad</text>
+<text x='404.0' y='62' text-anchor='middle'>neutral</text>
+<text x='102' y='116.0' text-anchor='end'>happy</text>
+<rect x='110' y='70' width='84' height='84' fill='rgb(164,191,255)' stroke='white'/><text x='152.0' y='117.0' text-anchor='middle' fill='#222' font-size='16'>8</text>
+<rect x='194' y='70' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='236.0' y='117.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='278' y='70' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='320.0' y='117.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='362' y='70' width='84' height='84' fill='rgb(130,168,255)' stroke='white'/><text x='404.0' y='117.0' text-anchor='middle' fill='white' font-size='16'>11</text>
+<text x='102' y='200.0' text-anchor='end'>uplift</text>
+<rect x='110' y='154' width='84' height='84' fill='rgb(237,242,255)' stroke='white'/><text x='152.0' y='201.0' text-anchor='middle' fill='#222' font-size='16'>2</text>
+<rect x='194' y='154' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='236.0' y='201.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='278' y='154' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='320.0' y='201.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='362' y='154' width='84' height='84' fill='rgb(57,117,255)' stroke='white'/><text x='404.0' y='201.0' text-anchor='middle' fill='white' font-size='16'>22</text>
+<text x='102' y='284.0' text-anchor='end'>sad</text>
+<rect x='110' y='238' width='84' height='84' fill='rgb(151,182,255)' stroke='white'/><text x='152.0' y='285.0' text-anchor='middle' fill='#222' font-size='16'>14</text>
+<rect x='194' y='238' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='236.0' y='285.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='278' y='238' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='320.0' y='285.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='362' y='238' width='84' height='84' fill='rgb(143,177,255)' stroke='white'/><text x='404.0' y='285.0' text-anchor='middle' fill='#222' font-size='16'>15</text>
+<text x='102' y='368.0' text-anchor='end'>neutral</text>
+<rect x='110' y='322' width='84' height='84' fill='rgb(203,219,255)' stroke='white'/><text x='152.0' y='369.0' text-anchor='middle' fill='#222' font-size='16'>5</text>
+<rect x='194' y='322' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='236.0' y='369.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='278' y='322' width='84' height='84' fill='rgb(255,255,255)' stroke='white'/><text x='320.0' y='369.0' text-anchor='middle' fill='#222' font-size='16'>0</text>
+<rect x='362' y='322' width='84' height='84' fill='rgb(91,140,255)' stroke='white'/><text x='404.0' y='369.0' text-anchor='middle' fill='white' font-size='16'>16</text>
+</svg>

@@ -238,6 +238,33 @@ facts and is shown immediately; the LLM version replaces it when ready. Design p
 
 Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 
+## Evaluation and user study
+
+Tools for measuring the system instead of guessing (`narrative-eval`). They only ever measure data you
+give them; [docs/evaluation.md](docs/evaluation.md) is a write-up **template with no results in it yet**.
+
+```bash
+narrative-eval benchmark --video clip.mp4          # per-stage latency, FPS, CPU, memory, install size
+narrative-eval collect --lighting bright           # record labelled expression frames (webcam)
+narrative-eval classifier --calibrate              # accuracy, confusion matrix, effect of calibration
+narrative-eval video clip.mp4 --timeline t.csv     # flicker per minute and reaction delay
+narrative-eval llm --model llama3.2                # time to first token, total time, fallback rate
+narrative-eval study-plan --participants 12        # counterbalanced run order + exact commands
+narrative-eval study-analyze study/responses.csv   # exact paired test, bootstrap CIs, SVG charts
+narrative-eval counterfactual session.jsonl        # replay one recorded viewer under every policy
+```
+
+**Session telemetry.** `--telemetry` writes a JSONL log (`logs/session_*.jsonl`) with timestamps, mood,
+valence/arousal, scene decisions with their reasons, pauses and timings. **No video or images are ever
+recorded**, and logging is off unless you ask for it. A log can be replayed through the director
+(`--replay FILE`, no camera needed), so different policies (`--mode adaptive|fixed|random`) can be compared
+on exactly the same recorded reactions. `--participant P01` tags a session with an anonymous id, `--seed`
+makes the random baseline repeatable, and `--study` hides the director note, stats and detector labels so
+participants are blind to the condition.
+
+**User study.** A within-subject design with counterbalanced order, a pre-fixed primary outcome and an exact
+small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md).
+
 ## Project structure
 
 ```
@@ -255,6 +282,10 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 │   │   ├── smoothing.py     rolling average, EMA, hysteresis gate
 │   │   └── motion.py        "walking" detection (face movement or frame difference)
 │   ├── pipeline.py          frame sources, capture + perception threads, metrics, degradation
+│   ├── telemetry.py         JSONL session logs, session reading and replay
+│   ├── evaluation.py        confusion matrices, flicker, reaction latency, statistics, SVG charts
+│   ├── study.py             study plan (counterbalancing), response checks, paired analysis
+│   ├── eval_cli.py          `narrative-eval` commands
 │   ├── story_tool.py        `narrative-story check|mermaid`
 │   ├── director/
 │   │   ├── graph.py         story graph, conditions, validation, JSON loading
@@ -268,7 +299,7 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 │   └── data/stories/arin_adventure.json
 ├── scripts/bench_pipeline.py
 ├── tests/
-└── docs/
+└── docs/                    evaluation.md (template), user-study-protocol.md, eval/ (your results)
 ```
 
 ## Command-line options
@@ -285,6 +316,12 @@ Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 | `--interval S` | `3.5` | seconds between automatic scene changes |
 | `--min-confidence X` | `0.25` | confidence needed to advance |
 | `--motion-threshold X` | `0.03` (`face`) / `7.0` (`frame`) | walking sensitivity |
+| `--telemetry [DIR]` | off (`logs/`) | write a JSONL session log (no video, ever) |
+| `--telemetry-hz X` | `15` | max logged readings per second (0 = every reading) |
+| `--participant ID` | none | anonymous id stored in the log and report |
+| `--study` | off | blind UI for user studies (hides director note, stats, detector labels) |
+| `--seed N` | none | repeatable `--mode random` |
+| `--replay FILE` | none | re-run the director on a telemetry log (no camera, implies `--headless`) |
 | `--no-threads` | off | one loop instead of capture/detect/render threads (easier to debug) |
 | `--fps` / `--perception-hz` | `30` / `15` | render rate / max detector runs per second |
 | `--perception-width` | `640` | shrink frames to this width before detection (0 = off) |
@@ -401,12 +438,16 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 
 ## Limitations and privacy
 
-- All processing is **local**. No video or images are stored or transmitted. The only network access is the
-  one-time MediaPipe model download (skippable with `--mp-model`).
+- All processing is **local**. While you play, no video or images are stored or transmitted. The only network
+  access is the one-time MediaPipe model download (skippable with `--mp-model`).
+- Optional `--telemetry` logs contain only labels, numbers and timings. The one exception to "no images" is
+  `narrative-eval collect`, which saves your own face frames to `eval_data/` for the accuracy evaluation; that
+  folder, `study/` and `logs/` are in `.gitignore` so they are not committed by accident.
 - Facial expression is not the same as inner emotion. Models can misread people, lighting, glasses and
   camera angles, and accuracy varies across demographics. Treat this as an interaction mechanic, not a
   measure of how someone feels.
-- Valence/arousal weights are hand-set heuristics and have **not yet been evaluated** against labelled data.
+- Valence/arousal weights are hand-set heuristics. Tools to evaluate them exist (see above), but no results are
+  published until you run them.
   Arousal from faces is a weak signal; expect it to be noisier than valence.
 - Reading text can furrow the brow, which may nudge the reading toward "sad". Calibration helps but does not
   remove this.
@@ -428,7 +469,8 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 - [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
 - [x] Headless / video replay with a JSON run report
 - [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.9 to 3.12), pre-commit
-- [ ] Benchmarks, classifier evaluation and a small user study
+- [x] Evaluation tooling: telemetry + replay, per-stage benchmark, classifier and flicker evaluation, study plan and analysis
+- [ ] **Run the evaluation and fill in [docs/evaluation.md](docs/evaluation.md) with real measurements**
 
 ## Team
 

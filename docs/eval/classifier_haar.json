@@ -1,0 +1,64 @@
+{
+  "backend": "haar",
+  "n_frames": 111,
+  "detection_rate": 0.8378378378378378,
+  "accuracy_detected": 0.25806451612903225,
+  "accuracy_all_frames": 0.21621621621621623,
+  "balanced_accuracy": 0.2957393483709273,
+  "macro_f1": 0.3549019607843137,
+  "per_class": {
+    "happy": {
+      "precision": 0.27586206896551724,
+      "recall": 0.42105263157894735,
+      "f1": 0.3333333333333333,
+      "support": 19
+    },
+    "uplift": {
+      "precision": null,
+      "recall": 0.0,
+      "f1": null,
+      "support": 24
+    },
+    "sad": {
+      "precision": null,
+      "recall": 0.0,
+      "f1": null,
+      "support": 29
+    },
+    "neutral": {
+      "precision": 0.25,
+      "recall": 0.7619047619047619,
+      "f1": 0.3764705882352941,
+      "support": 21
+    }
+  },
+  "confusion": [
+    [
+      8,
+      0,
+      0,
+      11
+    ],
+    [
+      2,
+      0,
+      0,
+      22
+    ],
+    [
+      14,
+      0,
+      0,
+      15
+    ],
+    [
+      5,
+      0,
+      0,
+      16
+    ]
+  ],
+  "n_takes": 8,
+  "take_accuracy": 0.375,
+  "calibrated": null
+}

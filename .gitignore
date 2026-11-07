@@ -21,6 +21,11 @@ htmlcov/
 
 # Runtime output
 logs/
+
+# Personal data: never commit face images or participant responses
+eval_data/
+study/
+*.jsonl
 *.log
 
 # Editors / OS

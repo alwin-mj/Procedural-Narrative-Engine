@@ -57,6 +57,7 @@ jobs:
         run: |
           narrative-engine --help
           narrative-story check
+          narrative-eval --help
           python -m narrative_engine --help
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
