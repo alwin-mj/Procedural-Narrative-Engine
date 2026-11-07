@@ -118,8 +118,9 @@ narrative-eval llm --model llama3.2 --beats 12
 |---|---|---|---|
 | TBD | TBD | TBD | TBD |
 
-Fallback rate counts timeouts, errors and outputs rejected by the checks (hero missing, lists,
-chatty preamble).
+Fallback rate counts request errors (timeouts, server down) plus answers rejected by the checks (lists,
+chatty preamble, refusal, markdown, or the hero's name missing when the scene names him). The command
+also prints the reasons for rejections, which is worth reading before blaming the model.
 
 ## 5. User study
 

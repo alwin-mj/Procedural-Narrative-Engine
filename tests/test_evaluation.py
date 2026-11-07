@@ -45,8 +45,11 @@ def test_majority_and_take_level_accuracy():
     assert ev.majority(["a", "b"]) == "a"  # tie: first seen
     with pytest.raises(ValueError):
         ev.majority([])
-    takes = {"t1": ("happy", ["happy", "happy", "sad"]), "t2": ("sad", ["happy", "happy", "sad"]),
-             "t3": ("neutral", [])}
+    takes = {
+        "t1": ("happy", ["happy", "happy", "sad"]),
+        "t2": ("sad", ["happy", "happy", "sad"]),
+        "t3": ("neutral", []),
+    }
     assert ev.take_level_accuracy(takes) == pytest.approx(1 / 3)
     assert ev.take_level_accuracy({}) is None
 
@@ -128,9 +131,11 @@ def test_confusion_svg_is_well_formed_and_escapes_text():
 
 
 def test_bar_svg_is_well_formed_for_normal_and_extreme_values():
-    groups = [{"label": "fixed", "mean": 2.4, "lo": 1.9, "hi": 2.9},
-              {"label": "adaptive", "mean": 4.9, "lo": 4.6, "hi": 5.0},
-              {"label": "low", "mean": 1.0, "lo": 1.0, "hi": 1.2}]
+    groups = [
+        {"label": "fixed", "mean": 2.4, "lo": 1.9, "hi": 2.9},
+        {"label": "adaptive", "mean": 4.9, "lo": 4.6, "hi": 5.0},
+        {"label": "low", "mean": 1.0, "lo": 1.0, "hi": 1.2},
+    ]
     root = ET.fromstring(ev.bar_svg("Responsive", groups))
     assert root.tag.endswith("svg")
     assert "4.90" in ev.bar_svg("t", groups) and "adaptive" in ev.bar_svg("t", groups)

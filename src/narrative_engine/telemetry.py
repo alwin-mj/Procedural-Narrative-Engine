@@ -142,9 +142,7 @@ def tick_to_detection(tick: Dict[str, Any]) -> Detection:
     if raw:
         box = (int(raw[0]), int(raw[1]), int(raw[2]), int(raw[3]))
     scores = {m: float(v) for m, v in zip(MOODS, tick["s"])}
-    return Detection(
-        tick["m"], float(tick["c"]), box, scores, float(tick["v"]), float(tick["a"])
-    )
+    return Detection(tick["m"], float(tick["c"]), box, scores, float(tick["v"]), float(tick["a"]))
 
 
 class ReplayDetector:

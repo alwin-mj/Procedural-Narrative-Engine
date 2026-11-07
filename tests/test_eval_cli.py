@@ -12,7 +12,8 @@ import numpy as np
 import pytest
 
 import narrative_engine.eval_cli as cli
-from narrative_engine import study, telemetry as tm
+from narrative_engine import study
+from narrative_engine import telemetry as tm
 from narrative_engine.perception import EmotionDetector
 from narrative_engine.perception.detector import Detection
 from narrative_engine.perception.mediapipe_backend import FaceObservation
@@ -76,8 +77,15 @@ def dataset(neutral_pixel=0, takes=3, frames=12, label_pixels=None, groups=(("me
             for take in range(1, takes + 1):
                 for i in range(frames):
                     p = Path(f"{subject}_{lighting}_{label}_{take}_{i}.png")
-                    rows.append({"path": p, "label": label, "take": str(take),
-                                 "lighting": lighting, "subject": subject})
+                    rows.append(
+                        {
+                            "path": p,
+                            "label": label,
+                            "take": str(take),
+                            "lighting": lighting,
+                            "subject": subject,
+                        }
+                    )
                     images[p] = pixel_frame(pixels[label])
     return rows, images
 
@@ -142,10 +150,14 @@ def test_frames_without_a_face_are_reported_separately():
 def test_labels_file_helpers(tmp_path):
     csv_path = tmp_path / "data" / "labels.csv"
     assert cli.next_take(csv_path, "happy", "me", "dim") == 1
-    cli.append_labels(csv_path, [{"path": "happy/a.png", "label": "happy", "take": 1,
-                                  "lighting": "dim", "subject": "me"}])
-    cli.append_labels(csv_path, [{"path": "happy/b.png", "label": "happy", "take": 2,
-                                  "lighting": "dim", "subject": "me"}])
+    cli.append_labels(
+        csv_path,
+        [{"path": "happy/a.png", "label": "happy", "take": 1, "lighting": "dim", "subject": "me"}],
+    )
+    cli.append_labels(
+        csv_path,
+        [{"path": "happy/b.png", "label": "happy", "take": 2, "lighting": "dim", "subject": "me"}],
+    )
     assert cli.next_take(csv_path, "happy", "me", "dim") == 3
     assert cli.next_take(csv_path, "happy", "me", "bright") == 1  # separate sequence per lighting
     rows = cli.load_labels(csv_path)
@@ -164,12 +176,14 @@ def test_classifier_command_writes_json_markdown_and_confusion_svg(tmp_path, cap
         for i in range(3):
             name = f"{label}/me_default_t1_{i:02d}.png"
             cv2.imwrite(str(data / name), np.full((90, 120, 3), 128, dtype=np.uint8))
-            rows.append({"path": name, "label": label, "take": 1, "lighting": "default",
-                         "subject": "me"})
+            rows.append(
+                {"path": name, "label": label, "take": 1, "lighting": "default", "subject": "me"}
+            )
     cli.append_labels(data / "labels.csv", rows)
     out = tmp_path / "out"
-    assert cli.main(["classifier", "--data", str(data), "--backends", "haar",
-                     "--out", str(out)]) == 0
+    assert (
+        cli.main(["classifier", "--data", str(data), "--backends", "haar", "--out", str(out)]) == 0
+    )
     text = capsys.readouterr().out
     assert "fewer than 3 takes" in text and "| haar |" in text
     assert "n/a" in text  # no face found, so no accuracy to report
@@ -180,10 +194,24 @@ def test_classifier_command_writes_json_markdown_and_confusion_svg(tmp_path, cap
 
 
 def test_classifier_command_reports_unreadable_images(tmp_path, capsys):
-    cli.append_labels(tmp_path / "labels.csv", [{"path": "gone.png", "label": "happy", "take": 1,
-                                                 "lighting": "x", "subject": "me"}])
-    assert cli.main(["classifier", "--data", str(tmp_path), "--backends", "haar",
-                     "--out", str(tmp_path / "o")]) == 1
+    cli.append_labels(
+        tmp_path / "labels.csv",
+        [{"path": "gone.png", "label": "happy", "take": 1, "lighting": "x", "subject": "me"}],
+    )
+    assert (
+        cli.main(
+            [
+                "classifier",
+                "--data",
+                str(tmp_path),
+                "--backends",
+                "haar",
+                "--out",
+                str(tmp_path / "o"),
+            ]
+        )
+        == 1
+    )
     assert "cannot read" in capsys.readouterr().err
 
 
@@ -279,8 +307,19 @@ def test_benchmark_command_in_process_and_isolated(tmp_path, capsys):
     for f in synthetic_frames(8):
         w.write(f)
     w.release()
-    common = ["benchmark", "--video", str(video), "--backends", "haar", "--frames", "6",
-              "--iterations", "6", "--threaded-seconds", "0"]
+    common = [
+        "benchmark",
+        "--video",
+        str(video),
+        "--backends",
+        "haar",
+        "--frames",
+        "6",
+        "--iterations",
+        "6",
+        "--threaded-seconds",
+        "0",
+    ]
     out = tmp_path / "bench"
     assert cli.main(common + ["--no-isolate", "--out", str(out)]) == 0
     data = json.loads((out / "benchmark.json").read_text(encoding="utf-8"))
@@ -355,8 +394,10 @@ def test_llm_benchmark_counts_good_junk_and_failed_requests():
     server, host = serve(StreamHandler)
     try:
         good = cli.benchmark_llm("tiny", host, beats=4, timeout_s=5)
+
         class Junk(StreamHandler):
             pieces = ["I'm sorry, ", "I cannot ", "help with that."]
+
         server2, host2 = serve(Junk)
         try:
             junk = cli.benchmark_llm("tiny", host2, beats=4, timeout_s=5)
@@ -367,10 +408,25 @@ def test_llm_benchmark_counts_good_junk_and_failed_requests():
     assert good["fallback_rate"] == 0.0 and good["ttft_ms"]["n"] == 4
     assert good["total_ms"]["median"] > 60
     assert junk["fallback_rate"] == 1.0 and junk["rejected_by_checks"] == 4 and junk["errors"] == 0
+    assert list(junk["rejection_reasons"]) == ["refusal instead of narration"]
     down = cli.benchmark_llm("tiny", "http://127.0.0.1:9", beats=3, timeout_s=1)
     assert down["errors"] == 3 and down["fallback_rate"] == 1.0
-    assert cli.main(["llm", "--model", "tiny", "--host", "http://127.0.0.1:9", "--beats", "2",
-                     "--timeout", "1"]) == 1
+    assert (
+        cli.main(
+            [
+                "llm",
+                "--model",
+                "tiny",
+                "--host",
+                "http://127.0.0.1:9",
+                "--beats",
+                "2",
+                "--timeout",
+                "1",
+            ]
+        )
+        == 1
+    )
 
 
 # ---------------------------------------------------------------- counterfactual + study CLI
@@ -410,8 +466,15 @@ def test_study_plan_and_analysis_commands_end_to_end(tmp_path, capsys):
     rows = []
     for i in range(6):
         for cond, val in (("fixed", 2), ("random", 3), ("adaptive", 5)):
-            rows.append({"participant": f"P{i + 1:02d}", "condition": cond, "run": 1,
-                         **{q: val for q in study.QUESTIONS}, "comment": ""})
+            rows.append(
+                {
+                    "participant": f"P{i + 1:02d}",
+                    "condition": cond,
+                    "run": 1,
+                    **{q: val for q in study.QUESTIONS},
+                    "comment": "",
+                }
+            )
     import csv as _csv
 
     with open(out / "responses.csv", "w", newline="", encoding="utf-8") as f:

@@ -9,6 +9,7 @@ offline.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 import urllib.error
@@ -80,6 +81,10 @@ class MediaPipeBackend:
     """Thin wrapper over ``mediapipe.tasks.vision.FaceLandmarker`` (VIDEO mode)."""
 
     def __init__(self, model_path: Optional[Union[str, Path]] = None) -> None:
+        # MediaPipe's C++ layer prints harmless INFO/WARNING lines to the terminal. Ask it to
+        # report errors only (must be set before the library loads; a user's own setting wins).
+        os.environ.setdefault("GLOG_minloglevel", "2")
+        os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
         import mediapipe as mp  # optional dependency; ImportError is handled by the caller
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision

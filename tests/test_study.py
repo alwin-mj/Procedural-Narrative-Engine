@@ -21,16 +21,24 @@ def rating_rows(n, adaptive=5, fixed=2, rnd=3, jitter=None):
         for cond, base in (("fixed", fixed), ("random", rnd), ("adaptive", adaptive)):
             val = base + (jitter[i % len(jitter)] if jitter else 0)
             val = max(1, min(5, val))
-            rows.append({"participant": f"P{i + 1:02d}", "condition": cond, "run": 1,
-                         **{q: val for q in QS}, "comment": ""})
+            rows.append(
+                {
+                    "participant": f"P{i + 1:02d}",
+                    "condition": cond,
+                    "run": 1,
+                    **{q: val for q in QS},
+                    "comment": "",
+                }
+            )
     return rows
 
 
 # ---------------------------------------------------------------- plan
 def test_plan_is_counterbalanced_across_orders():
     plan = st.make_plan(12, seed=4)
-    orders = Counter(tuple(r["condition"] for r in plan if r["participant"] == f"P{i:02d}")
-                     for i in range(1, 13))
+    orders = Counter(
+        tuple(r["condition"] for r in plan if r["participant"] == f"P{i:02d}") for i in range(1, 13)
+    )
     assert len(orders) == 6 and set(orders.values()) == {2}  # every order exactly twice
     for r in plan:
         assert r["condition"] in st.CONDITIONS and 1 <= r["run"] <= 3
@@ -42,8 +50,14 @@ def test_plan_commands_are_complete_and_seeds_differ():
     plan = st.make_plan(3, seed=7, interval_s=6, telemetry_dir="logs/x")
     assert len(plan) == 9
     cmd = plan[0]["command"]
-    for part in ("--study", "--mode " + plan[0]["condition"], "--participant P01", "--interval 6",
-                 "--telemetry logs/x", "--seed"):
+    for part in (
+        "--study",
+        "--mode " + plan[0]["condition"],
+        "--participant P01",
+        "--interval 6",
+        "--telemetry logs/x",
+        "--seed",
+    ):
         assert part in cmd
     assert len({r["command"] for r in plan}) == 9
     assert plan == st.make_plan(3, seed=7, interval_s=6, telemetry_dir="logs/x")  # reproducible

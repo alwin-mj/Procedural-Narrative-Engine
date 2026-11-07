@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "narrative-engine"
-version = "0.7.0"
+version = "0.7.1"
 description = "Real-time interactive story that adapts to your facial expression via webcam."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Alwin M J" }, { name = "Alwin John Shajan" }]
 keywords = ["computer-vision", "opencv", "interactive-storytelling", "affective-computing"]
@@ -59,12 +59,13 @@ exclude_lines = [
 
 [tool.black]
 line-length = 100
-target-version = ["py39"]
+target-version = ["py310"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+ignore = ["B905"]  # zip(strict=...) is optional style; the project zips equal-length data

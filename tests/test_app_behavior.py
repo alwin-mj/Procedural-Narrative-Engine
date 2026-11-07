@@ -327,8 +327,14 @@ def test_real_http_path_against_a_fake_ollama_server():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         llm = LLMRealizer("tiny", f"http://127.0.0.1:{server.server_port}", timeout_s=3)
-        req = BeatRequest(authored="Arin enters the market.", mood="happy", protagonist="Arin",
-                          title="Arin's Day", location="market", recent=("Arin wakes.",))
+        req = BeatRequest(
+            authored="Arin enters the market.",
+            mood="happy",
+            protagonist="Arin",
+            title="Arin's Day",
+            location="market",
+            recent=("Arin wakes.",),
+        )
         text = llm.realize(req)
     finally:
         server.shutdown()

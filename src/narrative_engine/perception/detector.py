@@ -134,9 +134,7 @@ class EmotionDetector:
         self._face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
-        self._smile_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_smile.xml"
-        )
+        self._smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
 
         self._mp: Any = None
         self._fer: Any = None
@@ -217,8 +215,15 @@ class EmotionDetector:
     @property
     def loaded_backends(self) -> List[str]:
         """Names of the backends that actually loaded (``haar`` is always available)."""
-        names = [n for n, obj in (("mediapipe", self._mp), ("fer", self._fer),
-                                  ("deepface", self._deepface)) if obj is not None]
+        names = [
+            n
+            for n, obj in (
+                ("mediapipe", self._mp),
+                ("fer", self._fer),
+                ("deepface", self._deepface),
+            )
+            if obj is not None
+        ]
         return names + ["haar"]
 
     @property

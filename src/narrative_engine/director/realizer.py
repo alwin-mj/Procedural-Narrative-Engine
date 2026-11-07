@@ -63,6 +63,8 @@ def build_prompt(req: BeatRequest) -> str:
     who = f" The protagonist is {req.protagonist}." if req.protagonist else ""
     where = f" Setting: {req.location}." if req.location else ""
     recent = " ".join(req.recent[-3:]) or "(this is the first scene)"
+    names_hero = bool(req.protagonist) and req.protagonist.lower() in req.authored.lower()
+    name_rule = f" Use the name {req.protagonist} at least once." if names_hero else ""
     return (
         f'You are the narrator of a short interactive story called "{req.title or "Untitled"}".'
         f"{who}{where}\n"
@@ -70,30 +72,88 @@ def build_prompt(req: BeatRequest) -> str:
         f"Scene to narrate: {req.authored}\n\n"
         f"Re-tell this scene in 1-2 sentences (under 45 words) in a {TONES.get(req.mood, 'calm')} "
         f"tone. Keep every plot fact and every named character or object. Do not add new "
-        f"events. Write only the narration, with no quotes, headings or lists."
+        f"events.{name_rule} Write only the narration, with no quotes, headings or lists."
     )
 
 
-def clean_output(text: str, protagonist: str = "", max_chars: int = MAX_CHARS) -> Optional[str]:
-    """Validate and tidy model output. Returns ``None`` if it should be rejected."""
-    if not text or re.search(r"(?m)^\s*(?:[-*\u2022]|\d+[.)])\s", text):
-        return None  # empty, or a bulleted / numbered list instead of narration
+class OutputRejected(ValueError):
+    """The model answered, but the answer failed the checks (as opposed to a failed request)."""
+
+    def __init__(self, reason: str, sample: str = "") -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.sample = sample
+
+
+def check_output(
+    text: str,
+    protagonist: str = "",
+    authored: Optional[str] = None,
+    max_chars: int = MAX_CHARS,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Validate and tidy model output. Returns ``(clean_text, None)`` or ``(None, reason)``.
+
+    The hero's name is only required when the authored line it retells contains that name.
+    Many authored lines say "he", and a faithful retelling of those must not be rejected
+    for leaving the name out. With ``authored=None`` the name is always required.
+    """
+    if not text or not text.strip():
+        return None, "empty answer"
+    if re.search(r"(?m)^\s*(?:[-*\u2022]|\d+[.)])\s", text):
+        return None, "bulleted or numbered list instead of narration"
     out = re.sub(r"\s+", " ", text).strip().strip("\"'`“”‘’ ")
     if re.match(r"^(sure|here|certainly|okay)[,:! ]", out, re.IGNORECASE):
-        return None  # chatty preamble instead of narration
+        return None, "chatty preamble instead of narration"
+    if re.match(r"^(i'?m sorry|i am sorry|sorry|i cannot|i can't|as an ai)\b", out, re.IGNORECASE):
+        return None, "refusal instead of narration"
     if len(out) > max_chars:
         cut = out[:max_chars]
         end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
         if end < MIN_CHARS:
-            return None
+            return None, f"longer than {max_chars} characters with no sentence break"
         out = cut[: end + 1]
     if len(out) < MIN_CHARS:
-        return None
-    if protagonist and protagonist.lower() not in out.lower():
-        return None  # lost the hero: likely drifted from the scene
-    if any(ch in out for ch in ("#", "*", "\n", "•")):
-        return None
-    return out
+        return None, f"shorter than {MIN_CHARS} characters"
+    needs_name = bool(protagonist) and (authored is None or protagonist.lower() in authored.lower())
+    if needs_name and protagonist.lower() not in out.lower():
+        return None, f"lost the hero's name ({protagonist!r}) that the scene mentions"
+    if any(ch in out for ch in ("#", "*", "•")):
+        return None, "markdown formatting"
+    return out, None
+
+
+def clean_output(
+    text: str,
+    protagonist: str = "",
+    max_chars: int = MAX_CHARS,
+    authored: Optional[str] = None,
+) -> Optional[str]:
+    """Like :func:`check_output` but returns only the cleaned text (``None`` if rejected)."""
+    return check_output(text, protagonist, authored, max_chars)[0]
+
+
+def check_ollama(
+    host: str,
+    model: str,
+    timeout_s: float = 2.0,
+    opener: Callable[..., Any] = urllib.request.urlopen,
+) -> Tuple[bool, str]:
+    """Is an Ollama server reachable and does it have ``model``? Returns ``(ok, message)``."""
+    url = host.rstrip("/") + "/api/tags"
+    try:
+        with opener(url, timeout=timeout_s) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        reason = getattr(exc, "reason", exc)
+        return False, f"Ollama is not reachable at {host} ({reason}). Start it with: ollama serve"
+    names = [str(m.get("name", "")) for m in payload.get("models", []) if isinstance(m, dict)]
+    if any(n == model or n.startswith(model + ":") for n in names):
+        return True, f"Ollama is running and has model {model!r}"
+    have = ", ".join(names) or "none"
+    return False, (
+        f"Ollama is running but model {model!r} is not installed (have: {have}). "
+        f"Run: ollama pull {model}"
+    )
 
 
 class LLMRealizer:
@@ -130,7 +190,11 @@ class LLMRealizer:
         with self._opener(http_req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         self._warm = True
-        return clean_output(str(payload.get("response", "")), req.protagonist)
+        raw = str(payload.get("response", ""))
+        cleaned, reason = check_output(raw, req.protagonist, req.authored)
+        if cleaned is None:
+            raise OutputRejected(reason or "rejected", raw)
+        return cleaned
 
 
 # ---------------------------------------------------------------------- async worker
@@ -157,7 +221,9 @@ class RealizerWorker:
         self._paused_until = 0.0
         self.requests = 0  # calls that reached the model
         self.successes = 0
-        self.fallbacks = 0  # calls that failed, timed out or were rejected
+        self.errors = 0  # the request itself failed (server down, timeout, HTTP error)
+        self.rejected = 0  # the model answered but the answer failed the checks
+        self.fallbacks = 0  # errors + rejections: the authored text was used instead
         self._thread = threading.Thread(target=self._run, name="realizer", daemon=True)
         self._thread.start()
 
@@ -191,6 +257,8 @@ class RealizerWorker:
         return {
             "requests": self.requests,
             "successes": self.successes,
+            "errors": self.errors,
+            "rejected": self.rejected,
             "fallbacks": self.fallbacks,
             "fallback_rate": round(self.fallback_rate, 3),
         }
@@ -219,31 +287,41 @@ class RealizerWorker:
                 return
             key, req = item
             text: Optional[str] = None
-            ok = False
+            outcome = "error"
             self.requests += 1
             try:
                 text = self._realizer.realize(req)
-                ok = text is not None
+                outcome = "ok" if text else "rejected"
+            except OutputRejected as exc:
+                outcome = "rejected"
+                if self.rejected < 3:  # say why, so a bad prompt or model is easy to spot
+                    log.warning("LLM answer rejected (%s): %.120r", exc.reason, exc.sample)
             except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
-                log.debug("LLM request failed: %s", exc)
+                if self.errors < 3:
+                    log.warning("LLM request failed: %s", getattr(exc, "reason", exc))
             except Exception as exc:  # never let the worker thread die
                 log.warning("LLM realizer error: %s", exc)
             with self._lock:
                 self._pending.discard(key)
-                if ok and text:
+                if outcome == "ok" and text:
                     self._cache[key] = text
                     while len(self._cache) > self._cache_size:
                         self._cache.popitem(last=False)
                     self._failures = 0
                     self.successes += 1
+                elif outcome == "rejected":
+                    self.rejected += 1  # the server is fine, so this never pauses the worker
+                    self.fallbacks += 1
+                    self._failures = 0
                 else:
+                    self.errors += 1
                     self.fallbacks += 1
                     self._failures += 1
                     if self._failures >= self.FAILURES_BEFORE_PAUSE:
                         self._paused_until = self._clock() + self.PAUSE_S
                         self._failures = 0
                         log.warning(
-                            "LLM unavailable after repeated failures; pausing for %.0fs "
+                            "LLM unreachable after repeated failures; pausing for %.0fs "
                             "(authored text is used meanwhile)",
                             self.PAUSE_S,
                         )

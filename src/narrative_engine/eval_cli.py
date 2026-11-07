@@ -33,7 +33,7 @@ import numpy as np
 
 from .config import MOODS, Config
 from .director.graph import load_story
-from .director.realizer import BeatRequest, build_prompt, clean_output
+from .director.realizer import BeatRequest, build_prompt, check_output
 from .evaluation import (
     classification_report,
     confusion_matrix,
@@ -185,8 +185,15 @@ def cmd_collect(a: argparse.Namespace) -> int:  # pragma: no cover - needs a cam
                     ok, frame = cap.read()
                     if ok:
                         shown = cv2.flip(frame, 1)
-                        cv2.putText(shown, f"Get ready: {label.upper()} in {count}", (20, 40),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                        cv2.putText(
+                            shown,
+                            f"Get ready: {label.upper()} in {count}",
+                            (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1,
+                            (0, 255, 255),
+                            2,
+                        )
                         cv2.imshow("collect", shown)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         return 0
@@ -196,16 +203,30 @@ def cmd_collect(a: argparse.Namespace) -> int:  # pragma: no cover - needs a cam
                 if not ok:
                     continue
                 shown = cv2.flip(frame, 1)
-                cv2.putText(shown, f"HOLD: {label.upper()}", (20, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                cv2.putText(
+                    shown,
+                    f"HOLD: {label.upper()}",
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 255, 0),
+                    2,
+                )
                 cv2.imshow("collect", shown)
                 if time.monotonic() >= next_shot:
                     next_shot = time.monotonic() + 1.0 / a.fps
                     name = f"{label}/{a.subject}_{a.lighting}_t{take}_{len(rows):02d}.png"
                     (out / label).mkdir(parents=True, exist_ok=True)
                     cv2.imwrite(str(out / name), shown)  # mirrored, as the app sees it
-                    rows.append({"path": name, "label": label, "take": take,
-                                 "lighting": a.lighting, "subject": a.subject})
+                    rows.append(
+                        {
+                            "path": name,
+                            "label": label,
+                            "take": take,
+                            "lighting": a.lighting,
+                            "subject": a.subject,
+                        }
+                    )
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     return 0
             append_labels(csv_path, rows)
@@ -328,8 +349,9 @@ def cmd_classifier(a: argparse.Namespace) -> int:
     counts: Dict[str, set] = defaultdict(set)
     for r in rows:
         counts[r["label"]].add((r["subject"], r["lighting"], r["take"]))
-    print(f"{len(rows)} frames. Takes per label: "
-          + ", ".join(f"{m}={len(counts[m])}" for m in MOODS))
+    print(
+        f"{len(rows)} frames. Takes per label: " + ", ".join(f"{m}={len(counts[m])}" for m in MOODS)
+    )
     if any(len(counts[m]) < 3 for m in MOODS):
         print(
             "WARNING: fewer than 3 takes for some label. Frames within a take are "
@@ -351,25 +373,54 @@ def cmd_classifier(a: argparse.Namespace) -> int:
             print(f"- {backend}: not installed, skipped")
             continue
         for group in res.get("calibration_skipped_groups") or []:
-            print(f"- {backend}: calibration skipped for {tuple(group)}: it needs a neutral take "
-                  f"with at least {MIN_CALIBRATION_SAMPLES} frames that all show a face")
+            print(
+                f"- {backend}: calibration skipped for {tuple(group)}: it needs a neutral take "
+                f"with at least {MIN_CALIBRATION_SAMPLES} frames that all show a face"
+            )
         save_json(res, out / f"classifier_{backend}.json")
         (out / f"confusion_{backend}.svg").write_text(
             confusion_svg(res["confusion"], MOODS, f"{backend}: confusion (detected frames)"),
             encoding="utf-8",
         )
-        summary_rows.append([backend, res["n_frames"], pct(res["detection_rate"]),
-                             pct(res["accuracy_detected"]), pct(res["balanced_accuracy"]),
-                             pct(res["macro_f1"]), pct(res["take_accuracy"]), res["n_takes"]])
+        summary_rows.append(
+            [
+                backend,
+                res["n_frames"],
+                pct(res["detection_rate"]),
+                pct(res["accuracy_detected"]),
+                pct(res["balanced_accuracy"]),
+                pct(res["macro_f1"]),
+                pct(res["take_accuracy"]),
+                res["n_takes"],
+            ]
+        )
         if res.get("calibrated"):
             c = res["calibrated"]
             summary_rows.append(
-                [f"{backend} + calibration", c["n_frames"], pct(c["detection_rate"]),
-                 pct(c["accuracy_detected"]), pct(c["balanced_accuracy"]), pct(c["macro_f1"]),
-                 pct(c["take_accuracy"]), c["n_takes"]]
+                [
+                    f"{backend} + calibration",
+                    c["n_frames"],
+                    pct(c["detection_rate"]),
+                    pct(c["accuracy_detected"]),
+                    pct(c["balanced_accuracy"]),
+                    pct(c["macro_f1"]),
+                    pct(c["take_accuracy"]),
+                    c["n_takes"],
+                ]
             )
-    table = md_table(["backend", "frames", "face found", "accuracy", "balanced acc.", "macro F1",
-                      "take-level acc.", "takes"], summary_rows)
+    table = md_table(
+        [
+            "backend",
+            "frames",
+            "face found",
+            "accuracy",
+            "balanced acc.",
+            "macro F1",
+            "take-level acc.",
+            "takes",
+        ],
+        summary_rows,
+    )
     (out / "classifier.md").write_text(table + "\n", encoding="utf-8")
     print(table)
     print(f"\nWrote results, confusion matrices (SVG) and classifier.md to {out}/")
@@ -428,8 +479,10 @@ def evaluate_video(
                 truth.append(lab)
         if len(truth) >= 2:
             tt = [times[k] for k in keep]
-            lat = {name: onset_latencies(tt, truth, [seq[k] for k in keep])
-                   for name, seq in (("raw", raw), ("final", final))}
+            lat = {
+                name: onset_latencies(tt, truth, [seq[k] for k in keep])
+                for name, seq in (("raw", raw), ("final", final))
+            }
             out["accuracy_vs_timeline"] = {
                 name: round(sum(1 for k, tr in zip(keep, truth) if seq[k] == tr) / len(truth), 3)
                 for name, seq in (("raw", raw), ("final", final))
@@ -539,11 +592,20 @@ def benchmark_backend(
     res: Dict[str, Any] = {
         "backend": backend,
         "iterations": iterations,
-        "stages_ms": {k: {"p50": round(float(np.percentile(v, 50)), 3),
-                          "p95": round(float(np.percentile(v, 95)), 3)} for k, v in stages.items()},
+        "stages_ms": {
+            k: {
+                "p50": round(float(np.percentile(v, 50)), 3),
+                "p95": round(float(np.percentile(v, 95)), 3),
+            }
+            for k, v in stages.items()
+        },
         "capture_ms": (
-            {"p50": round(float(np.percentile(capture_ms, 50)), 3),
-             "p95": round(float(np.percentile(capture_ms, 95)), 3)} if capture_ms else None
+            {
+                "p50": round(float(np.percentile(capture_ms, 50)), 3),
+                "p95": round(float(np.percentile(capture_ms, 95)), 3),
+            }
+            if capture_ms
+            else None
         ),
         "detector_fps_single_thread": round(iterations / wall, 1),
         "cpu_percent_of_one_core": round(100 * cpu / wall, 1) if wall > 0 else None,
@@ -607,10 +669,22 @@ def cmd_benchmark(a: argparse.Namespace) -> int:
     results = []
     for backend in [b.strip() for b in a.backends.split(",") if b.strip()]:
         if a.isolate:  # one process per backend, so memory numbers are not contaminated
-            cmd = [sys.executable, "-m", "narrative_engine.eval_cli", "benchmark", "--no-isolate",
-                   "--backends", backend, "--frames", str(a.frames),
-                   "--iterations", str(a.iterations),
-                   "--threaded-seconds", str(a.threaded_seconds), "--json-only"]
+            cmd = [
+                sys.executable,
+                "-m",
+                "narrative_engine.eval_cli",
+                "benchmark",
+                "--no-isolate",
+                "--backends",
+                backend,
+                "--frames",
+                str(a.frames),
+                "--iterations",
+                str(a.iterations),
+                "--threaded-seconds",
+                str(a.threaded_seconds),
+                "--json-only",
+            ]
             cmd += ["--video", str(a.video)] if a.video else ["--camera", str(a.camera)]
             if a.mp_model:
                 cmd += ["--mp-model", str(a.mp_model)]
@@ -636,12 +710,34 @@ def cmd_benchmark(a: argparse.Namespace) -> int:
     rows = []
     for r in results:
         s = r["stages_ms"]
-        rows.append([r["backend"], ms(s["face"]["p50"]), ms(s["inference"]["p50"]),
-                     ms(s["inference"]["p95"]), ms(s["smoothing"]["p50"]), ms(s["render"]["p50"]),
-                     ms(s["total"]["p95"]), r["detector_fps_single_thread"],
-                     r["cpu_percent_of_one_core"], r["peak_rss_mb"], r["install_size_mb"]])
-    headers = ["backend", "face p50 ms", "infer p50", "infer p95", "smooth p50", "render p50",
-               "detect+smooth p95", "detector FPS", "CPU % (1 core)", "peak RSS MB", "install MB"]
+        rows.append(
+            [
+                r["backend"],
+                ms(s["face"]["p50"]),
+                ms(s["inference"]["p50"]),
+                ms(s["inference"]["p95"]),
+                ms(s["smoothing"]["p50"]),
+                ms(s["render"]["p50"]),
+                ms(s["total"]["p95"]),
+                r["detector_fps_single_thread"],
+                r["cpu_percent_of_one_core"],
+                r["peak_rss_mb"],
+                r["install_size_mb"],
+            ]
+        )
+    headers = [
+        "backend",
+        "face p50 ms",
+        "infer p50",
+        "infer p95",
+        "smooth p50",
+        "render p50",
+        "detect+smooth p95",
+        "detector FPS",
+        "CPU % (1 core)",
+        "peak RSS MB",
+        "install MB",
+    ]
     table = md_table(headers, rows)
     print(table)
     if a.out:
@@ -656,10 +752,17 @@ def stream_generate(
     host: str, model: str, prompt: str, timeout_s: float, opener: Any = urllib.request.urlopen
 ) -> Tuple[str, Optional[float], float]:
     """Run one streaming Ollama request. Returns (text, time-to-first-token s, total s)."""
-    body = json.dumps({"model": model, "prompt": prompt, "stream": True,
-                       "options": {"temperature": 0.7, "num_predict": 100}}).encode("utf-8")
-    req = urllib.request.Request(host.rstrip("/") + "/api/generate", data=body,
-                                 headers={"Content-Type": "application/json"})
+    body = json.dumps(
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"temperature": 0.7, "num_predict": 100},
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        host.rstrip("/") + "/api/generate", data=body, headers={"Content-Type": "application/json"}
+    )
     t0 = time.perf_counter()
     first: Optional[float] = None
     parts: List[str] = []
@@ -691,6 +794,7 @@ def benchmark_llm(
     ttfts: List[float] = []
     totals: List[float] = []
     rejected = errors = 0
+    reasons: Dict[str, int] = defaultdict(int)
     for text, mood in work:
         req = BeatRequest(
             authored=text, mood=mood, title=graph.title, protagonist=graph.protagonist
@@ -704,14 +808,17 @@ def benchmark_llm(
         if ttft is not None:
             ttfts.append(ttft * 1e3)
         totals.append(total * 1e3)
-        if clean_output(out, graph.protagonist) is None:
+        _, why = check_output(out, graph.protagonist, text)
+        if why is not None:
             rejected += 1
+            reasons[why] += 1
     n = len(work)
     return {
         "model": model,
         "beats": n,
         "errors": errors,
         "rejected_by_checks": rejected,
+        "rejection_reasons": dict(reasons),
         "fallback_rate": round((errors + rejected) / n, 3) if n else None,
         "ttft_ms": summarize(ttfts),
         "total_ms": summarize(totals),
@@ -735,25 +842,47 @@ def counterfactual(
 
     rows = []
     for mode in modes:
-        cfg = Config(backend="haar", headless=True, replay=session_path, director_mode=mode,
-                     seed=seed, advance_interval_s=interval_s, calibrate_on_start=False)
+        cfg = Config(
+            backend="haar",
+            headless=True,
+            replay=session_path,
+            director_mode=mode,
+            seed=seed,
+            advance_interval_s=interval_s,
+            calibrate_on_start=False,
+        )
         app = App(cfg)
         rep = app.run_headless(app._make_source())
-        rows.append({"mode": mode, "route": rep["route"], "scenes": len(rep["route"]),
-                     "finished": rep["finished"], "ending": rep["ending"],
-                     "moods": rep["moods"]})
+        rows.append(
+            {
+                "mode": mode,
+                "route": rep["route"],
+                "scenes": len(rep["route"]),
+                "finished": rep["finished"],
+                "ending": rep["ending"],
+                "moods": rep["moods"],
+            }
+        )
     return rows
 
 
 def cmd_counterfactual(a: argparse.Namespace) -> int:
     modes = [m.strip() for m in a.modes.split(",")]
     rows = counterfactual(Path(a.session), modes, a.seed, a.interval)
-    print(md_table(["mode", "scenes", "finished", "ending", "route"],
-                   [[r["mode"], r["scenes"], r["finished"], r["ending"], " > ".join(r["route"])]
-                    for r in rows]))
-    print("\nNote: the recording stops when the original session ended, so a policy that takes a "
-          "longer route may not finish. Viewer reactions are replayed, not re-generated: the "
-          "viewer cannot respond to the different story.")
+    print(
+        md_table(
+            ["mode", "scenes", "finished", "ending", "route"],
+            [
+                [r["mode"], r["scenes"], r["finished"], r["ending"], " > ".join(r["route"])]
+                for r in rows
+            ],
+        )
+    )
+    print(
+        "\nNote: the recording stops when the original session ended, so a policy that takes a "
+        "longer route may not finish. Viewer reactions are replayed, not re-generated: the "
+        "viewer cannot respond to the different story."
+    )
     return 0
 
 
@@ -765,8 +894,10 @@ def cmd_study_plan(a: argparse.Namespace) -> int:
     write_response_template(plan, out / "responses.csv")
     table_rows = [[r["participant"], r["run"], r["condition"]] for r in plan]
     print(md_table(["participant", "run", "condition"], table_rows))
-    print(f"\nWrote {out / 'plan.csv'} (with the exact command for every run) and a blank "
-          f"{out / 'responses.csv'}.")
+    print(
+        f"\nWrote {out / 'plan.csv'} (with the exact command for every run) and a blank "
+        f"{out / 'responses.csv'}."
+    )
     return 0
 
 
@@ -831,8 +962,12 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--backends", default="haar,mediapipe,fer,deepface")
     c.add_argument("--frames", type=int, default=150, help="frames to load")
     c.add_argument("--iterations", type=int, default=300)
-    c.add_argument("--threaded-seconds", type=float, default=3.0,
-                   help="also measure camera-to-result latency in the threaded pipeline (0 = skip)")
+    c.add_argument(
+        "--threaded-seconds",
+        type=float,
+        default=3.0,
+        help="also measure camera-to-result latency in the threaded pipeline (0 = skip)",
+    )
     c.add_argument("--isolate", dest="isolate", action="store_true", default=True)
     c.add_argument("--no-isolate", dest="isolate", action="store_false")
     c.add_argument("--json-only", action="store_true", help=argparse.SUPPRESS)

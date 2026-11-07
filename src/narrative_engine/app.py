@@ -25,9 +25,8 @@ from .director import (
     choose_advance_emotion,
     load_story,
 )
-from .director.realizer import BeatRequest, LLMRealizer, RealizerWorker
+from .director.realizer import BeatRequest, LLMRealizer, RealizerWorker, check_ollama
 from .perception import Detection, EmotionDetector, FaceMotion, MotionDetector
-from .telemetry import ReplayDetector, ReplaySource, TelemetryWriter, read_session, tick_record
 from .pipeline import (
     CameraSource,
     Metrics,
@@ -37,6 +36,7 @@ from .pipeline import (
     degrade,
 )
 from .render import GameWindow, PlayerAnimation
+from .telemetry import ReplayDetector, ReplaySource, TelemetryWriter, read_session, tick_record
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +117,11 @@ class App:
         if realizer is not None:
             self.worker = RealizerWorker(realizer, clock=clock)
         elif cfg.llm:
+            ok, message = check_ollama(cfg.llm_host, cfg.llm)
+            if ok:
+                log.info("LLM: %s", message)
+            else:
+                log.warning("LLM: %s. The authored text will be used instead.", message)
             llm = LLMRealizer(cfg.llm, cfg.llm_host, cfg.llm_timeout_s)
             self.worker = RealizerWorker(llm, clock=clock)
         self._requested: Set[Any] = set()
@@ -305,8 +310,13 @@ class App:
         self._tel("restart" if self._started_once else "start", now)
         self._started_once = True
         self._tel(
-            "scene", now, id=self.session.current_id, frm=None, to=self.session.current_id,
-            mood="neutral", reason="start",
+            "scene",
+            now,
+            id=self.session.current_id,
+            frm=None,
+            to=self.session.current_id,
+            mood="neutral",
+            reason="start",
         )
         self._recent.clear()
         self._requested.clear()
@@ -561,6 +571,14 @@ class App:
             return VideoFileSource(cfg.video, realtime=not cfg.headless)
         return CameraSource(cfg.camera_index)
 
+    def _open_error(self) -> str:
+        if self.cfg.video:
+            return f"Cannot open video {self.cfg.video}"
+        return (
+            f"Cannot open camera {self.cfg.camera_index}. "
+            "Close other apps using it or try --camera 1"
+        )
+
     def _window_closed(self) -> bool:
         """True once the user closed the window with its X button."""
         try:
@@ -587,10 +605,7 @@ class App:
                 self._write_report(report)
                 return 0
             if not source.open():
-                what = f"video {self.cfg.video}" if self.cfg.video else (
-                    f"camera {self.cfg.camera_index}. Close other apps using it or try --camera 1"
-                )
-                log.error("Cannot open %s", what)
+                log.error("%s", self._open_error())
                 return 1
             log.info("Running. Keys: S start, C calibrate, SPACE next scene, Q quit.")
             return self._loop_threaded(source) if self.cfg.threaded else self._loop_sync(source)

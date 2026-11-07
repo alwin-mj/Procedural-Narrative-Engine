@@ -8,7 +8,7 @@
 Smile and the world warms up. Look sad and it turns gentle. No controller, just your expression.
 
 [![CI](https://github.com/alwin-mj/Procedural-Narrative-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/alwin-mj/Procedural-Narrative-Engine/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-vision-5C3EE8)
 ![License](https://img.shields.io/badge/license-MIT-00D2FF)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-FF9F3C)
@@ -140,7 +140,7 @@ Run it on your own machine for real numbers, and measure your actual detector wi
 **Headless replay.** Run the whole engine on a recording, with no window:
 
 ```bash
-narrative-engine --video session.mp4 --headless --report run.json
+narrative-engine --video my_recording.mp4 --headless --report run.json   # any video file of your own
 narrative-engine --headless --max-frames 300 --report run.json     # live camera, no window
 ```
 
@@ -231,9 +231,14 @@ facts and is shown immediately; the LLM version replaces it when ready. Design p
 
 - Runs on a **background thread**, so the camera and UI never wait.
 - The next scenes are **prefetched** while you read, so text is usually ready on arrival.
-- Output is checked (length, protagonist present, no lists or chatty preambles); bad output is discarded.
-- Failures and timeouts fall back to the authored text and are counted (`LLM stats` are logged on exit,
-  including the fallback rate). After 3 consecutive failures it pauses for 30 s.
+- At startup it checks that Ollama is reachable and the model is installed, and tells you exactly what to
+  fix (`ollama serve`, `ollama pull <model>`) if not. The game still runs, with authored text.
+- Output is checked (length, no lists, chatty preambles, refusals or markdown). The hero's name is required
+  only when the scene being retold names him, because many authored lines just say "he".
+- Failures fall back to the authored text and are counted. `LLM stats` are logged on exit and separate
+  **errors** (server down, timeout) from **rejected** answers (the model replied but the answer failed the
+  checks), with the reason logged for the first few. Only repeated *errors* pause the narrator for 30 s;
+  rejected answers never do, because the server is clearly working.
 - First request gets extra time to load the model; later ones use `--llm-timeout` (default 6 s, CPU-friendly).
 
 Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
@@ -407,7 +412,7 @@ Every push to `main` and every pull request runs [GitHub Actions](.github/workfl
 | Job | What it does |
 |---|---|
 | Lint | `ruff check` and `black --check` |
-| Test (Python 3.9, 3.10, 3.11, 3.12) | full test suite with coverage (minimum 90% enforced), then CLI smoke tests |
+| Test (Python 3.10, 3.11, 3.12) | full test suite with coverage (minimum 90% enforced), then CLI smoke tests |
 
 The tests need **no camera, no MediaPipe model, no TensorFlow and no Ollama**:
 
@@ -433,7 +438,7 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 | Window freezes or FPS is low | Make sure threads are on (default). Lower `--perception-hz` or `--perception-width` to cut detector load; check the stats line for the detector's p95 time. |
 | "No frames received after 10 s" | The camera opened but delivered nothing: close other apps using it, try `--camera 1`, or replug it. |
 | Mood flickers or feels sluggish | Tune `hysteresis_frames`, `smoothing_window` and `affect_smoothing` in `config.py`. |
-| `--llm` does nothing | Check that Ollama is running (`ollama list`) and the model name matches. Look for "LLM stats" on exit: a fallback rate near 1.0 means requests are failing or timing out; try a smaller model or a larger `--llm-timeout`. |
+| `--llm` does nothing | Read the first lines of the log: `LLM: ...` says whether Ollama is reachable and the model is installed. On exit, `LLM stats` shows `errors` (server problems or timeouts: try a smaller model or a larger `--llm-timeout`) versus `rejected` (the model answered but the answer failed the checks; the log says why). |
 | Slow first frames (FER/DeepFace) | They load large models at startup. Use MediaPipe or `--backend haar`. |
 
 ## Limitations and privacy
@@ -468,7 +473,7 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 - [x] Threaded capture/perception/render pipeline with frame dropping and downscaling
 - [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
 - [x] Headless / video replay with a JSON run report
-- [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.9 to 3.12), pre-commit
+- [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.10 to 3.12), pre-commit
 - [x] Evaluation tooling: telemetry + replay, per-stage benchmark, classifier and flicker evaluation, study plan and analysis
 - [ ] **Run the evaluation and fill in [docs/evaluation.md](docs/evaluation.md) with real measurements**
 

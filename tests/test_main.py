@@ -41,10 +41,59 @@ def test_invalid_configuration_returns_2_with_a_message(capsys):
 
 
 def test_bad_story_file_returns_2(tmp_path):
-    bad = tmp_path / "bad.json"
+    bad, video = tmp_path / "bad.json", tmp_path / "x.avi"
     bad.write_text(json.dumps({"scenes": []}), encoding="utf-8")
-    assert entry.main(["--backend", "haar", "--story", str(bad), "--max-frames", "3",
-                       "--headless", "--video", str(tmp_path / "x.avi")]) == 2
+    write_video(video, frames=3)
+    assert (
+        entry.main(
+            [
+                "--backend",
+                "haar",
+                "--story",
+                str(bad),
+                "--max-frames",
+                "3",
+                "--headless",
+                "--video",
+                str(video),
+            ]
+        )
+        == 2
+    )
+
+
+def test_missing_files_are_reported_immediately_with_the_flag_name(tmp_path, capsys):
+    cases = [
+        (["--video", str(tmp_path / "session.mp4"), "--headless"], "--video: file not found"),
+        (["--replay", str(tmp_path / "s.jsonl")], "--replay: file not found"),
+        (["--story", str(tmp_path / "s.json")], "--story: file not found"),
+        (["--mp-model", str(tmp_path / "m.task")], "--mp-model: file not found"),
+        (["--sprites", str(tmp_path / "frames")], "--sprites: folder not found"),
+    ]
+    for argv, expected in cases:
+        assert entry.main(["--backend", "haar", *argv]) == 2
+        assert expected in capsys.readouterr().err
+
+
+def test_missing_input_checks_run_before_the_app_is_built(tmp_path):
+    built = []
+
+    class Spy:
+        def __init__(self, cfg):
+            built.append(cfg)
+
+        def run(self):
+            return 0
+
+    with Swap(Spy):
+        assert entry.main(["--video", str(tmp_path / "nope.mp4"), "--headless"]) == 2
+    assert built == []  # no detector, no model loading for a typo
+
+
+def test_a_damaged_replay_log_is_a_clean_error_not_a_traceback(tmp_path):
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("this is not a telemetry file\n", encoding="utf-8")
+    assert entry.main(["--backend", "haar", "--replay", str(bad)]) == 2
 
 
 def test_keyboard_interrupt_is_a_clean_exit():
@@ -86,8 +135,18 @@ def test_main_passes_the_run_result_through():
 def test_headless_replay_through_main_writes_a_report(tmp_path):
     video, out = tmp_path / "in.avi", tmp_path / "report.json"
     write_video(video)
-    code = entry.main(["--backend", "haar", "--video", str(video), "--headless",
-                       "--report", str(out), "--no-calibration"])
+    code = entry.main(
+        [
+            "--backend",
+            "haar",
+            "--video",
+            str(video),
+            "--headless",
+            "--report",
+            str(out),
+            "--no-calibration",
+        ]
+    )
     assert code == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["frames"] == 30 and data["route"][0] == "wake" and data["backend"] == "none"
@@ -99,9 +158,23 @@ def test_cli_subprocess_replay_is_a_working_integration_test(tmp_path):
     write_video(video, frames=40)
     env = {**os.environ, "PYTHONPATH": SRC + os.pathsep + os.environ.get("PYTHONPATH", "")}
     proc = subprocess.run(
-        [sys.executable, "-m", "narrative_engine", "--backend", "haar", "--video", str(video),
-         "--headless", "--report", str(out), "--no-calibration"],
-        capture_output=True, text=True, timeout=120, env=env,
+        [
+            sys.executable,
+            "-m",
+            "narrative_engine",
+            "--backend",
+            "haar",
+            "--video",
+            str(video),
+            "--headless",
+            "--report",
+            str(out),
+            "--no-calibration",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
     )
     assert proc.returncode == 0, proc.stderr
     data = json.loads(out.read_text(encoding="utf-8"))
@@ -112,6 +185,11 @@ def test_cli_subprocess_replay_is_a_working_integration_test(tmp_path):
 
 def test_cli_story_tool_runs_as_a_module():
     env = {**os.environ, "PYTHONPATH": SRC + os.pathsep + os.environ.get("PYTHONPATH", "")}
-    proc = subprocess.run([sys.executable, "-m", "narrative_engine.story_tool", "check"],
-                          capture_output=True, text=True, timeout=60, env=env)
+    proc = subprocess.run(
+        [sys.executable, "-m", "narrative_engine.story_tool", "check"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
     assert proc.returncode == 0 and "OK:" in proc.stdout

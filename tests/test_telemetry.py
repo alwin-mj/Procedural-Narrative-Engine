@@ -51,9 +51,17 @@ def write_video(path, frames=300, fps=10):
 def live_run(tmp_path, detector=None, **cfg_kw):
     video = tmp_path / "v.avi"
     write_video(video)
-    cfg = Config(backend="haar", video=video, headless=True, calibrate_on_start=False,
-                 advance_interval_s=2.0, telemetry=tmp_path / "logs", participant="P01",
-                 seed=3, **cfg_kw)
+    cfg = Config(
+        backend="haar",
+        video=video,
+        headless=True,
+        calibrate_on_start=False,
+        advance_interval_s=2.0,
+        telemetry=tmp_path / "logs",
+        participant="P01",
+        seed=3,
+        **cfg_kw,
+    )
     app = App(cfg, detector=detector or ScriptedDetector())
     return app.run_headless(VideoFileSource(video))
 
@@ -199,8 +207,13 @@ def test_telemetry_rate_limit(tmp_path):
 
 def test_replay_reproduces_the_live_route_exactly(tmp_path):
     report = live_run(tmp_path)
-    cfg = Config(backend="haar", headless=True, replay=Path(report["telemetry"]),
-                 advance_interval_s=2.0, calibrate_on_start=False)
+    cfg = Config(
+        backend="haar",
+        headless=True,
+        replay=Path(report["telemetry"]),
+        advance_interval_s=2.0,
+        calibrate_on_start=False,
+    )
     app = App(cfg)
     again = app.run_headless(app._make_source())
     assert again["route"] == report["route"] and again["moods"] == report["moods"]
@@ -211,8 +224,14 @@ def test_replay_lets_different_policies_face_the_same_viewer(tmp_path):
     report = live_run(tmp_path)
     routes = {}
     for mode in ("adaptive", "fixed"):
-        cfg = Config(backend="haar", headless=True, replay=Path(report["telemetry"]),
-                     advance_interval_s=2.0, director_mode=mode, calibrate_on_start=False)
+        cfg = Config(
+            backend="haar",
+            headless=True,
+            replay=Path(report["telemetry"]),
+            advance_interval_s=2.0,
+            director_mode=mode,
+            calibrate_on_start=False,
+        )
         app = App(cfg)
         routes[mode] = app.run_headless(app._make_source())["route"]
     assert routes["adaptive"] != routes["fixed"]
@@ -264,8 +283,15 @@ def test_seed_makes_the_random_baseline_reproducible(tmp_path):
     def run(seed):
         video = tmp_path / "r.avi"
         write_video(video, frames=200)
-        cfg = Config(backend="haar", video=video, headless=True, calibrate_on_start=False,
-                     advance_interval_s=1.0, director_mode="random", seed=seed)
+        cfg = Config(
+            backend="haar",
+            video=video,
+            headless=True,
+            calibrate_on_start=False,
+            advance_interval_s=1.0,
+            director_mode="random",
+            seed=seed,
+        )
         return App(cfg, detector=ScriptedDetector()).run_headless(VideoFileSource(video))["route"]
 
     assert run(11) == run(11)

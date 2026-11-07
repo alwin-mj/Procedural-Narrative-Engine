@@ -1,7 +1,7 @@
 """Validate a story file and draw its graph.
 
-    narrative-story check my_story.json        # validate + print a summary
-    narrative-story mermaid my_story.json      # print a Mermaid flowchart (renders on GitHub)
+narrative-story check my_story.json        # validate + print a summary
+narrative-story mermaid my_story.json      # print a Mermaid flowchart (renders on GitHub)
 """
 
 from __future__ import annotations

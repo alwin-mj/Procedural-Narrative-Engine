@@ -146,8 +146,9 @@ def test_numeric_conditions_and_ranges():
 
 
 def test_flag_visited_mood_and_relation_conditions():
-    ctx = Context(mood="happy", flags=frozenset({"pendant"}), visited=("a", "b"),
-                  relations={"smith": 2})
+    ctx = Context(
+        mood="happy", flags=frozenset({"pendant"}), visited=("a", "b"), relations={"smith": 2}
+    )
     assert parse_condition({"flag": "pendant"}, "t").test(ctx)
     assert not parse_condition({"not_flag": "pendant"}, "t").test(ctx)
     assert parse_condition({"visited": ["a", "b"]}, "t").test(ctx)

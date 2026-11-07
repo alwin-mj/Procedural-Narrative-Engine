@@ -15,12 +15,16 @@ def small_graph():
                 {
                     "id": "a",
                     "variants": v("a"),
-                    "effects": [{"when": {"mood": "happy"}, "set_flags": ["gift"],
-                                 "relations": {"bob": 1}}],
+                    "effects": [
+                        {"when": {"mood": "happy"}, "set_flags": ["gift"], "relations": {"bob": 1}}
+                    ],
                     "next": [{"to": "b"}, {"to": "c", "when": {"arousal": ">=0.5"}}],
                 },
-                {"id": "b", "variants": v("b"),
-                 "callbacks": [{"if": {"flag": "gift"}, "text": "(gift!)"}]},
+                {
+                    "id": "b",
+                    "variants": v("b"),
+                    "callbacks": [{"if": {"flag": "gift"}, "text": "(gift!)"}],
+                },
                 {"id": "c", "variants": v("c")},
             ],
             "endings": [
@@ -60,9 +64,13 @@ def test_effects_fire_on_entering_with_matching_mood():
         {
             "scenes": [
                 {"id": "a", "variants": v("a"), "next": ["b"]},
-                {"id": "b", "variants": v("b"),
-                 "effects": [{"when": {"mood": "happy"}, "set_flags": ["f"],
-                              "relations": {"bob": 2}}]},
+                {
+                    "id": "b",
+                    "variants": v("b"),
+                    "effects": [
+                        {"when": {"mood": "happy"}, "set_flags": ["f"], "relations": {"bob": 2}}
+                    ],
+                },
             ],
             "endings": [{"id": "e", "text": "e"}],
         }
