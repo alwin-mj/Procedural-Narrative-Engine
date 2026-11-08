@@ -250,6 +250,7 @@ give them; [docs/evaluation.md](docs/evaluation.md) is a write-up **template wit
 
 ```bash
 narrative-eval benchmark --video clip.mp4          # per-stage latency, FPS, CPU, memory, install size
+#   (clip.mp4 is a placeholder: use any video file you recorded; a missing file is reported at once)
 narrative-eval collect --lighting bright           # record labelled expression frames (webcam)
 narrative-eval classifier --calibrate              # accuracy, confusion matrix, effect of calibration
 narrative-eval video clip.mp4 --timeline t.csv     # flicker per minute and reaction delay

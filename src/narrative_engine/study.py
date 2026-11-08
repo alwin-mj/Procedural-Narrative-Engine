@@ -196,7 +196,7 @@ def analyze(rows: Sequence[Mapping[str, Any]], seed: int = 0) -> Dict[str, Any]:
                 "ties": sum(1 for d in diffs if d == 0),
                 "losses": sum(1 for d in diffs if d < 0),
             }
-        for (key, comp), p_holm in zip(entry["comparisons"].items(), holm_adjust(raw_p)):
+        for comp, p_holm in zip(entry["comparisons"].values(), holm_adjust(raw_p)):
             comp["p_holm"] = round(p_holm, 4)
         result["questions"][q] = entry
     if not result["questions"]:

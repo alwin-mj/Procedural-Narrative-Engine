@@ -268,9 +268,9 @@ def test_study_mode_hides_everything_that_reveals_the_director():
         pass
 
     seen = []
+    blank = np.zeros((540, 960, 3), np.uint8)
     for study in (False, True):
         app = App(Config(backend="haar", study=study, calibrate_on_start=False), detector=Det())
-        blank = np.zeros((540, 960, 3), np.uint8)
         app.window.render = lambda *a, _s=seen, **k: _s.append(k) or blank
         app.handle_key(ord("s"))
         app.step(np.zeros((120, 160, 3), dtype=np.uint8))

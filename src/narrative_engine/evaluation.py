@@ -84,6 +84,47 @@ def take_level_accuracy(takes: Mapping[str, Tuple[str, Sequence[str]]]) -> Optio
     return hits / len(takes)
 
 
+def wilson_interval(successes: int, n: int, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson score interval for a proportion (well behaved for small n, unlike the normal one)."""
+    if n <= 0:
+        raise ValueError("n must be > 0")
+    if not 0 <= successes <= n:
+        raise ValueError("successes must be between 0 and n")
+    p = successes / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def cluster_bootstrap_accuracy(
+    takes: Mapping[str, Tuple[str, Sequence[str]]],
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> Optional[Tuple[float, float]]:
+    """Confidence interval for frame-level accuracy that respects clustering by take.
+
+    Frames in one take are near-duplicates, so resampling *frames* would badly understate the
+    uncertainty. Here whole takes are resampled with replacement. Returns ``None`` with fewer
+    than two takes (there is nothing to resample).
+    """
+    stats = [
+        (sum(1 for p in preds if p == truth), len(preds))
+        for truth, preds in takes.values()
+        if len(preds) > 0
+    ]
+    if len(stats) < 2:
+        return None
+    correct = np.array([c for c, _ in stats], dtype=float)
+    total = np.array([t for _, t in stats], dtype=float)
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(stats), size=(n_boot, len(stats)))
+    acc = correct[idx].sum(axis=1) / total[idx].sum(axis=1)
+    lo, hi = np.percentile(acc, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return float(lo), float(hi)
+
+
 # ---------------------------------------------------------------------- flicker and latency
 def count_flips(sequence: Sequence[str]) -> int:
     """How many times consecutive entries differ."""

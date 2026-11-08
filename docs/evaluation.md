@@ -78,13 +78,19 @@ narrative-eval classifier --data eval_data --backends haar,mediapipe,fer,deepfac
 With `--calibrate`, MediaPipe is evaluated twice on the **same held-out frames**: without and with
 per-lighting calibration. The calibration take itself is excluded from both.
 
-| Backend | Frames | Takes | Face found | Accuracy | Balanced accuracy | Macro F1 | Take-level accuracy |
+| Backend | Frames | Takes | Face found | Accuracy [95% CI over takes] | Balanced accuracy | Macro F1 | Take-level hits [95% CI] |
 |---|---|---|---|---|---|---|---|
 | haar | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 | mediapipe | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 | mediapipe + calibration | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 | fer | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 | deepface | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+**How to read the intervals.** Frames from one take are near-duplicates, so the accuracy interval comes
+from resampling whole *takes* (a cluster bootstrap), and the take-level interval is a Wilson interval on
+hits out of takes. With only 6 to 8 takes these intervals are wide, and that width is the honest answer.
+Two rows whose intervals overlap heavily (for example with and without calibration) are not shown to
+differ. More takes, more lighting conditions, and tuning on some takes while testing on others narrow it.
 
 Confusion matrices: generated as `docs/eval/confusion_<backend>.svg`. Embed them here, for example
 `![mediapipe](eval/confusion_mediapipe.svg)`.

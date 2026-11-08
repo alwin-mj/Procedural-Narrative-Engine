@@ -40,9 +40,11 @@ def imported_modules() -> set:
 def test_every_module_is_used_by_something():
     modules = {dotted(p) for p in PACKAGE.rglob("*.py") if p.name != "__init__.py"}
     orphans = sorted(m for m in modules - imported_modules() - ENTRY_POINTS)
-    assert (
-        orphans == []
-    ), f"modules that nothing imports (stale files from an older version?): {orphans}"
+    paths = [f"src/{m.replace('.', '/')}.py" for m in orphans]
+    assert orphans == [], (
+        "These modules are imported by nothing; they look like leftovers from an older version. "
+        f"Delete them (git rm {' '.join(paths)}) or import them: {orphans}"
+    )
 
 
 def console_scripts() -> dict:

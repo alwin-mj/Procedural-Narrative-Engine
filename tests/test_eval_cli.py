@@ -341,7 +341,7 @@ def test_benchmark_command_in_process_and_isolated(tmp_path, capsys):
 
 def test_benchmark_command_reports_a_missing_video(tmp_path, capsys):
     assert cli.main(["benchmark", "--video", str(tmp_path / "x.avi"), "--backends", "haar"]) == 1
-    assert "cannot open video" in capsys.readouterr().err
+    assert "video file not found" in capsys.readouterr().err
 
 
 def test_small_helpers():
@@ -493,3 +493,86 @@ def test_parser_requires_a_known_command():
         cli.main([])
     with pytest.raises(SystemExit):
         cli.main(["bogus"])
+
+
+# ---------------------------------------------------------------- fail fast on a missing file
+def test_missing_inputs_fail_fast_before_any_detector_is_built(tmp_path, capsys):
+    built = []
+
+    def spy(backend, model=None, **kw):
+        built.append(backend)
+        return None
+
+    cases = [
+        (
+            ["video", str(tmp_path / "clip2.mp4"), "--timeline", str(tmp_path / "t.csv")],
+            "video file not found",
+        ),
+        (
+            ["classifier", "--data", str(tmp_path / "eval_data"), "--backends", "haar"],
+            "labels file",
+        ),
+        (
+            ["benchmark", "--video", str(tmp_path / "clip.mp4"), "--backends", "haar"],
+            "video file not found",
+        ),
+        (["counterfactual", str(tmp_path / "s.jsonl")], "telemetry log not found"),
+        (["study-analyze", str(tmp_path / "responses.csv")], "response sheet not found"),
+    ]
+    with Patched(spy):
+        for argv, expected in cases:
+            assert cli.main(argv) == 1
+            assert expected in capsys.readouterr().err
+    assert built == []  # nothing heavy was loaded just to report a typo
+
+
+def test_a_missing_timeline_is_reported_even_when_the_video_exists(tmp_path, capsys):
+    video = tmp_path / "v.avi"
+    w = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 10, (100, 80))
+    for f in noisy_timeline():
+        w.write(f)
+    w.release()
+    with Patched():
+        assert cli.main(["video", str(video), "--timeline", str(tmp_path / "t.csv")]) == 1
+    assert "timeline file not found" in capsys.readouterr().err
+
+
+def test_detector_fallback_warning_is_silenced_for_evaluation_commands(tmp_path):
+    import logging
+
+    cli.main(["study-plan", "--participants", "6", "--out", str(tmp_path)])
+    detector_log = logging.getLogger("narrative_engine.perception.detector")
+    assert detector_log.level == logging.ERROR
+
+
+def test_classifier_results_carry_confidence_intervals_and_the_table_shows_them():
+    rows, images = dataset(takes=3, frames=12)
+    for r in rows[::5]:  # make some predictions wrong so the intervals are not degenerate
+        images[r["path"]] = pixel_frame(30)
+    with Patched():
+        res = cli.evaluate_classifier("mediapipe", rows, images)
+    lo, hi = res["accuracy_ci95_over_takes"]
+    assert 0 <= lo <= res["accuracy_detected"] <= hi <= 1
+    assert res["take_hits"] <= res["n_takes"] == 12
+    tlo, thi = res["take_accuracy_ci95"]
+    assert 0 <= tlo <= thi <= 1
+    row = cli.summary_row("mediapipe", res)
+    assert "[" in row[3] and "-" in row[3] and "/" in row[6] and row[7] == 12
+
+
+def test_summary_formatting_helpers():
+    assert cli.pct_ci(0.495, [0.2, 0.79]) == "49.5% [20-79%]"
+    assert cli.pct_ci(0.5, None) == "50.0%" and cli.pct_ci(None, [0, 1]) == "n/a"
+    one_take = {
+        "n_takes": 1,
+        "take_hits": 1,
+        "take_accuracy_ci95": [0.2, 1.0],
+        "n_frames": 5,
+        "detection_rate": 1.0,
+        "accuracy_detected": 1.0,
+        "accuracy_ci95_over_takes": None,
+        "balanced_accuracy": 1.0,
+        "macro_f1": 1.0,
+    }
+    row = cli.summary_row("x", one_take)
+    assert row[3] == "100.0%" and row[6].startswith("1/1 [20-100%]")  # no interval with 1 take

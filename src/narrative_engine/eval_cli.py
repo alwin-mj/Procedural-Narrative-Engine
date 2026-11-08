@@ -36,12 +36,15 @@ from .director.graph import load_story
 from .director.realizer import BeatRequest, build_prompt, check_output
 from .evaluation import (
     classification_report,
+    cluster_bootstrap_accuracy,
     confusion_matrix,
     confusion_svg,
     flips_per_minute,
+    majority,
     onset_latencies,
     summarize,
     take_level_accuracy,
+    wilson_interval,
 )
 from .perception.detector import MIN_CALIBRATION_SAMPLES, EmotionDetector
 from .perception.smoothing import EmotionSmoother
@@ -78,6 +81,13 @@ def pct(x: Optional[float]) -> str:
     return "n/a" if x is None else f"{100 * x:.1f}%"
 
 
+def pct_ci(x: Optional[float], ci: Optional[Sequence[float]]) -> str:
+    """``49.5% [20-79%]``: a percentage with its 95% interval (or just the percentage)."""
+    if x is None:
+        return "n/a"
+    return pct(x) if not ci else f"{pct(x)} [{100 * ci[0]:.0f}-{100 * ci[1]:.0f}%]"
+
+
 def ms(x: Optional[float]) -> str:
     return "n/a" if x is None else f"{x:.1f}"
 
@@ -87,6 +97,12 @@ def save_json(obj: Any, path: Path) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2)
         f.write("\n")
+
+
+def require_file(path: Path, what: str) -> None:
+    """Fail fast, with a clear message, before any model is loaded."""
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"{what} not found: {path}")
 
 
 def make_detector(
@@ -272,6 +288,11 @@ def _score(rows: Sequence[Dict[str, Any]], preds: Sequence[Optional[str]]) -> Di
         if p is not None:
             takes[key][1].append(p)
     correct_all = sum(1 for r, p in zip(rows, preds) if p == r["label"])
+    keyed = {str(k): v for k, v in takes.items()}
+    scored = [(truth, ps) for truth, ps in keyed.values() if ps]
+    hits = sum(1 for truth, ps in scored if majority(ps) == truth)
+    acc_ci = cluster_bootstrap_accuracy(keyed)
+    take_ci = wilson_interval(hits, len(scored)) if scored else None
     return {
         "n_frames": n,
         "detection_rate": len(detected) / n if n else None,
@@ -281,8 +302,11 @@ def _score(rows: Sequence[Dict[str, Any]], preds: Sequence[Optional[str]]) -> Di
         "macro_f1": rep["macro_f1"],
         "per_class": rep["per_class"],
         "confusion": cm,
+        "accuracy_ci95_over_takes": None if acc_ci is None else [round(x, 4) for x in acc_ci],
         "n_takes": len(takes),
-        "take_accuracy": take_level_accuracy({str(k): v for k, v in takes.items()}),
+        "take_accuracy": take_level_accuracy(keyed),
+        "take_hits": hits,
+        "take_accuracy_ci95": None if take_ci is None else [round(x, 4) for x in take_ci],
     }
 
 
@@ -343,8 +367,26 @@ def evaluate_classifier(
     return result
 
 
+def summary_row(label: str, r: Dict[str, Any]) -> List[Any]:
+    """One row of the classifier summary table."""
+    hits = f"{r['take_hits']}/{r['n_takes']}" if r["n_takes"] else "n/a"
+    take_ci = r["take_accuracy_ci95"]
+    take_cell = hits if not take_ci else f"{hits} [{100 * take_ci[0]:.0f}-{100 * take_ci[1]:.0f}%]"
+    return [
+        label,
+        r["n_frames"],
+        pct(r["detection_rate"]),
+        pct_ci(r["accuracy_detected"], r["accuracy_ci95_over_takes"]),
+        pct(r["balanced_accuracy"]),
+        pct(r["macro_f1"]),
+        take_cell,
+        r["n_takes"],
+    ]
+
+
 def cmd_classifier(a: argparse.Namespace) -> int:
     csv_path = Path(a.data) / "labels.csv"
+    require_file(csv_path, "labels file (record frames first with `narrative-eval collect`)")
     rows = load_labels(csv_path)
     counts: Dict[str, set] = defaultdict(set)
     for r in rows:
@@ -382,45 +424,20 @@ def cmd_classifier(a: argparse.Namespace) -> int:
             confusion_svg(res["confusion"], MOODS, f"{backend}: confusion (detected frames)"),
             encoding="utf-8",
         )
-        summary_rows.append(
-            [
-                backend,
-                res["n_frames"],
-                pct(res["detection_rate"]),
-                pct(res["accuracy_detected"]),
-                pct(res["balanced_accuracy"]),
-                pct(res["macro_f1"]),
-                pct(res["take_accuracy"]),
-                res["n_takes"],
-            ]
-        )
+        summary_rows.append(summary_row(backend, res))
         if res.get("calibrated"):
-            c = res["calibrated"]
-            summary_rows.append(
-                [
-                    f"{backend} + calibration",
-                    c["n_frames"],
-                    pct(c["detection_rate"]),
-                    pct(c["accuracy_detected"]),
-                    pct(c["balanced_accuracy"]),
-                    pct(c["macro_f1"]),
-                    pct(c["take_accuracy"]),
-                    c["n_takes"],
-                ]
-            )
-    table = md_table(
-        [
-            "backend",
-            "frames",
-            "face found",
-            "accuracy",
-            "balanced acc.",
-            "macro F1",
-            "take-level acc.",
-            "takes",
-        ],
-        summary_rows,
-    )
+            summary_rows.append(summary_row(f"{backend} + calibration", res["calibrated"]))
+    headers = [
+        "backend",
+        "frames",
+        "face found",
+        "accuracy [95% CI over takes]",
+        "balanced acc.",
+        "macro F1",
+        "take-level hits [95% CI]",
+        "takes",
+    ]
+    table = md_table(headers, summary_rows)
     (out / "classifier.md").write_text(table + "\n", encoding="utf-8")
     print(table)
     print(f"\nWrote results, confusion matrices (SVG) and classifier.md to {out}/")
@@ -514,6 +531,9 @@ def read_video(path: Path, max_frames: Optional[int] = None) -> Tuple[List[np.nd
 
 
 def cmd_video(a: argparse.Namespace) -> int:
+    require_file(Path(a.video), "video file")
+    if a.timeline:
+        require_file(Path(a.timeline), "timeline file")
     det = make_detector(a.backend, a.mp_model)
     if det is None:
         print(f"backend {a.backend!r} is not installed", file=sys.stderr)
@@ -661,6 +681,8 @@ def _frames_for_benchmark(a: argparse.Namespace) -> Tuple[List[np.ndarray], List
 
 
 def cmd_benchmark(a: argparse.Namespace) -> int:
+    if a.video:
+        require_file(a.video, "video file")
     try:
         frames, reads = _frames_for_benchmark(a)
     except ValueError as exc:
@@ -867,6 +889,7 @@ def counterfactual(
 
 
 def cmd_counterfactual(a: argparse.Namespace) -> int:
+    require_file(Path(a.session), "telemetry log")
     modes = [m.strip() for m in a.modes.split(",")]
     rows = counterfactual(Path(a.session), modes, a.seed, a.interval)
     print(
@@ -902,6 +925,7 @@ def cmd_study_plan(a: argparse.Namespace) -> int:
 
 
 def cmd_study_analyze(a: argparse.Namespace) -> int:
+    require_file(Path(a.responses), "response sheet")
     rows = load_responses(Path(a.responses))
     result = analyze(rows, seed=a.seed)
     md = render_markdown(result)
@@ -1008,6 +1032,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    # Asking for a backend that is not installed is normal here (it is just skipped), so the
+    # detector's "falling back to Haar" warning would only be noise.
+    logging.getLogger("narrative_engine.perception.detector").setLevel(logging.ERROR)
     try:
         return int(args.func(args))
     except (ValueError, OSError) as exc:

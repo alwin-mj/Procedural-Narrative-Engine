@@ -140,3 +140,40 @@ def test_bar_svg_is_well_formed_for_normal_and_extreme_values():
     assert root.tag.endswith("svg")
     assert "4.90" in ev.bar_svg("t", groups) and "adaptive" in ev.bar_svg("t", groups)
     assert ET.fromstring(ev.bar_svg("wide scale", groups[:1], ymin=0, ymax=100)) is not None
+
+
+# ---------------------------------------------- honest uncertainty for small samples
+def test_wilson_interval_matches_known_values():
+    lo, hi = ev.wilson_interval(3, 7)
+    assert lo == pytest.approx(0.158, abs=0.002) and hi == pytest.approx(0.750, abs=0.002)
+    lo, hi = ev.wilson_interval(0, 5)
+    assert lo == 0.0 and hi == pytest.approx(0.434, abs=0.002)
+    lo, hi = ev.wilson_interval(10, 10)
+    assert hi == 1.0 and lo == pytest.approx(0.722, abs=0.002)
+    with pytest.raises(ValueError):
+        ev.wilson_interval(1, 0)
+    with pytest.raises(ValueError):
+        ev.wilson_interval(5, 4)
+
+
+def test_cluster_bootstrap_resamples_takes_not_frames():
+    perfect = {f"t{i}": ("happy", ["happy"] * 10) for i in range(4)}
+    assert ev.cluster_bootstrap_accuracy(perfect) == (1.0, 1.0)
+
+    mixed = {"good": ("happy", ["happy"] * 15), "bad": ("sad", ["happy"] * 15)}  # 50% overall
+    lo, hi = ev.cluster_bootstrap_accuracy(mixed, seed=3)
+    assert lo == 0.0 and hi == 1.0  # two takes cannot pin down accuracy: the interval says so
+    assert (lo, hi) == ev.cluster_bootstrap_accuracy(mixed, seed=3)  # seeded: repeatable
+
+    seven = {}  # 4 of 7 takes right, like a small real dataset
+    for i in range(7):
+        seven[f"t{i}"] = ("happy", ["happy"] * 12 if i < 4 else ["sad"] * 12)
+    lo, hi = ev.cluster_bootstrap_accuracy(seven, seed=1)
+    assert lo <= 4 / 7 <= hi and hi - lo > 0.4  # wide, as 7 takes deserve
+
+
+def test_cluster_bootstrap_needs_at_least_two_takes_with_frames():
+    assert ev.cluster_bootstrap_accuracy({}) is None
+    assert ev.cluster_bootstrap_accuracy({"only": ("happy", ["happy"] * 5)}) is None
+    two_with_one_empty = {"a": ("happy", ["happy"] * 5), "b": ("sad", [])}
+    assert ev.cluster_bootstrap_accuracy(two_with_one_empty) is None
