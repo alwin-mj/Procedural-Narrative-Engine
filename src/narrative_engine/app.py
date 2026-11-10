@@ -46,6 +46,9 @@ KEY_QUIT = ord("q")
 KEY_START = ord("s")
 KEY_NEXT = ord(" ")
 KEY_CALIBRATE = ord("c")
+KEY_CAMERA = ord("x")
+PAUSED_TEXT = "Camera is off. Press X to turn it back on."
+STARTING_TEXT = "Starting camera..."
 STARTUP_TIMEOUT_S = 10.0
 NO_FACE_TEXT = "I can't see you. Move into view to continue."
 CAMERA_LOST_TEXT = "Camera disconnected. Reconnecting..."
@@ -101,10 +104,7 @@ class App:
             affect_alpha=cfg.affect_smoothing,
             mediapipe_model=cfg.mediapipe_model,
         )
-        threshold = cfg.resolved_motion_threshold
-        self.motion = (
-            FaceMotion(threshold) if cfg.motion_mode == "face" else MotionDetector(threshold)
-        )
+        self.motion = self._make_motion()
 
         anim = (
             PlayerAnimation(cfg.sprites_dir, size=cfg.sprite_size, fps=cfg.sprite_fps)
@@ -164,6 +164,12 @@ class App:
         self._no_face_since: Optional[float] = None
         self._seen_window = False
         self._closed = False
+
+        # privacy controls and demo recording
+        self._camera_paused = False
+        self._camera_pausable = True  # False for video files, where "camera off" means nothing
+        self._recorder: Optional[cv2.VideoWriter] = None
+        self._recording_failed = False
 
         # calibration / transient messages
         self._calib_until: Optional[float] = None
@@ -451,7 +457,7 @@ class App:
     # ------------------------------------------------------------------ one frame
     def step(
         self,
-        frame: np.ndarray,
+        frame: Optional[np.ndarray],
         result: Any = _SYNC,
         camera_ok: bool = True,
         render: bool = True,
@@ -464,6 +470,8 @@ class App:
         """
         cfg = self.cfg
         now = self._clock()
+        if frame is None or self._camera_paused:
+            return self._message_step(now, render)
         det, fresh = self._perceive(frame, result, now)
         emo, conf, box, scores = det.emotion, det.confidence, det.box, det.scores
         self._det = det
@@ -547,7 +555,58 @@ class App:
             director_note=self._director_note() if debug else "",
             stats=stats if debug else "",
             debug=debug,
+            camera_on=True,
         )
+
+    def _message_step(self, now: float, render: bool) -> Optional[np.ndarray]:
+        """A frame with no camera image: switched off by the user, or still starting up."""
+        if self.active:
+            self._last_advance = now  # hold the scene timer: nothing advances while blind
+        self.metrics.record_frame()
+        if not render:
+            return None
+        text = PAUSED_TEXT if self._camera_paused else STARTING_TEXT
+        return self.window.render(
+            None,
+            "neutral",
+            0.0,
+            None,
+            self.active,
+            text,
+            [],
+            backend=getattr(self.detector, "active_backend", ""),
+            debug=not self.cfg.study,
+            camera_on=not self._camera_paused,
+        )
+
+    def _make_motion(self) -> Any:
+        threshold = self.cfg.resolved_motion_threshold
+        if self.cfg.motion_mode == "face":
+            return FaceMotion(threshold)
+        return MotionDetector(threshold)
+
+    @property
+    def camera_paused(self) -> bool:
+        return self._camera_paused
+
+    def set_camera_paused(self, paused: bool) -> None:
+        """Switch the camera off (it is released, not just hidden) or back on."""
+        if paused == self._camera_paused:
+            return
+        now = self._clock()
+        self._camera_paused = paused
+        self._tel("camera_off" if paused else "camera_on", now)
+        if paused:
+            log.info("Camera switched off. Press X to switch it back on.")
+            return
+        log.info("Camera switched back on")
+        reset = getattr(self.detector, "reset_smoothing", None)
+        if callable(reset):
+            reset()  # do not carry a mood over from before the pause
+        self.motion = self._make_motion()
+        self._det = _NO_FACE
+        self._no_face_since = None
+        self._last_advance = now
 
     def handle_key(self, key: int) -> bool:
         """Handle a key press. Returns False when the app should quit."""
@@ -560,6 +619,8 @@ class App:
             self._advance(now)
         elif key == KEY_CALIBRATE:
             self.start_calibration(now)
+        elif key == KEY_CAMERA and self._camera_pausable:
+            self.set_camera_paused(not self._camera_paused)
         return True
 
     # ------------------------------------------------------------------ running
@@ -593,8 +654,39 @@ class App:
     def _show(self, out: np.ndarray) -> bool:
         """Display a frame and handle input. Returns False when the app should stop."""
         cv2.imshow(self.cfg.window_title, out)
+        self._write_recording(out)
         key = cv2.waitKey(1) & 0xFF
         return self.handle_key(key) and not self._window_closed()
+
+    def _write_recording(self, out: np.ndarray) -> None:
+        """Append the composed window to the ``--record`` file, if one was requested."""
+        path = self.cfg.record
+        if path is None or self._recording_failed:
+            return
+        if self._recorder is None:
+            h, w = out.shape[:2]
+            codec = "MJPG" if path.suffix.lower() == ".avi" else "mp4v"
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                writer = cv2.VideoWriter(
+                    str(path), cv2.VideoWriter_fourcc(*codec), self.cfg.target_fps, (w, h)
+                )
+            except OSError as exc:  # e.g. the folder cannot be created
+                log.error("Cannot record to %s (%s). Carrying on without it.", path, exc)
+                self._recording_failed = True
+                return
+            if not writer.isOpened():
+                log.error("Cannot write the recording to %s. Continuing without it.", path)
+                self._recording_failed = True
+                return
+            self._recorder = writer
+            log.info("Recording the window to %s (this includes your webcam preview)", path)
+        self._recorder.write(out)
+
+    def _close_recording(self) -> None:
+        if self._recorder is not None:
+            self._recorder.release()
+            self._recorder = None
 
     def run(self) -> int:
         """Run until quit (window) or until the story/video/frame limit (headless)."""
@@ -607,13 +699,22 @@ class App:
             if not source.open():
                 log.error("%s", self._open_error())
                 return 1
-            log.info("Running. Keys: S start, C calibrate, SPACE next scene, Q quit.")
+            self._camera_pausable = isinstance(source, CameraSource)
+            keys = "S start, C calibrate, X camera off/on, SPACE next scene, Q quit"
+            log.info("Running. Keys: %s.", keys)
             return self._loop_threaded(source) if self.cfg.threaded else self._loop_sync(source)
         except RuntimeError as exc:
             log.error("%s", exc)
             return 1
         finally:
             self._shutdown()
+
+    def _sync_pipeline(self, pipe: Pipeline) -> None:
+        """Make the capture thread match the user's camera on/off choice."""
+        if self._camera_paused and not pipe.paused:
+            pipe.pause()
+        elif not self._camera_paused and pipe.paused:
+            pipe.resume()
 
     def _loop_threaded(self, source: Any) -> int:
         cfg = self.cfg
@@ -630,21 +731,26 @@ class App:
         pipe.start()
         interval = 1.0 / cfg.target_fps
         started = time.monotonic()
+        got_frame = False  # the startup timeout only applies until the first frame arrives
         try:
             while True:
                 t0 = time.perf_counter()
-                frame = pipe.frame()
-                if frame is None:  # nothing yet, or the stream ended before a frame arrived
-                    if pipe.ended:
+                frame = None if self._camera_paused else pipe.frame()
+                if frame is None and not got_frame and not self._camera_paused:
+                    if pipe.ended:  # the stream ended before a frame arrived
                         break
                     if time.monotonic() - started > STARTUP_TIMEOUT_S:
                         log.error("No frames received after %.0f s", STARTUP_TIMEOUT_S)
                         return 1
                     time.sleep(0.01)
                     continue
-                out = self.step(frame, pipe.result(), pipe.camera_ok)
+                if frame is not None:
+                    got_frame = True
+                result = None if frame is None else pipe.result()
+                out = self.step(frame, result, pipe.camera_ok)
                 if not self._show(out):
                     break
+                self._sync_pipeline(pipe)
                 if pipe.ended:
                     log.info("End of video")
                     break
@@ -662,9 +768,21 @@ class App:
         reader = ReconnectingSource(source, cfg.camera_lost_after, cfg.camera_retry_s, self._clock)
         interval = 1.0 / cfg.target_fps
         frame: Optional[np.ndarray] = None
+        released = False
         try:
             while True:
                 t0 = time.perf_counter()
+                if self._camera_paused:
+                    if not released:  # switch the camera off for real
+                        reader.release()
+                        released, frame = True, None
+                    if not self._show(self.step(None)):
+                        break
+                    time.sleep(max(0.0, interval - (time.perf_counter() - t0)))
+                    continue
+                if released:
+                    reader.reopen_now()
+                    released = False
                 new = reader.read()
                 if reader.ended:
                     log.info("End of video")
@@ -765,6 +883,7 @@ class App:
         if self._closed:
             return
         self._closed = True
+        self._close_recording()
         self._close_telemetry(self._clock())
         close = getattr(self.detector, "close", None)
         if callable(close):

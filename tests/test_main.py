@@ -105,7 +105,7 @@ def test_keyboard_interrupt_is_a_clean_exit():
             raise KeyboardInterrupt
 
     with Swap(Interrupted):
-        assert entry.main(["--backend", "haar"]) == 0
+        assert entry.main(["--backend", "haar", "--yes"]) == 0
 
 
 def test_unexpected_error_returns_1_instead_of_a_traceback():
@@ -117,7 +117,7 @@ def test_unexpected_error_returns_1_instead_of_a_traceback():
             raise ZeroDivisionError("bug")
 
     with Swap(Broken):
-        assert entry.main(["--backend", "haar"]) == 1
+        assert entry.main(["--backend", "haar", "--yes"]) == 1
 
 
 def test_main_passes_the_run_result_through():
@@ -129,7 +129,7 @@ def test_main_passes_the_run_result_through():
             return 7
 
     with Swap(Fine):
-        assert entry.main(["--backend", "haar"]) == 7
+        assert entry.main(["--backend", "haar", "--yes"]) == 7
 
 
 def test_headless_replay_through_main_writes_a_report(tmp_path):
@@ -193,3 +193,84 @@ def test_cli_story_tool_runs_as_a_module():
         env=env,
     )
     assert proc.returncode == 0 and "OK:" in proc.stdout
+
+
+# ------------------------------------------------------- privacy: consent before the camera
+class CountingApp:
+    built = []
+
+    def __init__(self, cfg):
+        CountingApp.built.append(cfg)
+
+    def run(self):
+        return 0
+
+
+def with_home(tmp_path, fn):
+    old = os.environ.get("NARRATIVE_ENGINE_HOME")
+    os.environ["NARRATIVE_ENGINE_HOME"] = str(tmp_path / "home")
+    try:
+        return fn()
+    finally:
+        if old is None:
+            os.environ.pop("NARRATIVE_ENGINE_HOME", None)
+        else:
+            os.environ["NARRATIVE_ENGINE_HOME"] = old
+
+
+def test_the_camera_is_never_opened_without_consent(tmp_path, capsys):
+    CountingApp.built.clear()
+    with Swap(CountingApp):
+        code = with_home(tmp_path, lambda: entry.main(["--backend", "haar"]))
+    assert code == 2 and CountingApp.built == []  # no app, no detector, no camera
+    assert "PRIVACY NOTICE" in capsys.readouterr().out
+
+
+def test_yes_accepts_for_one_run_and_remembers_nothing(tmp_path):
+    CountingApp.built.clear()
+    with Swap(CountingApp):
+        assert with_home(tmp_path, lambda: entry.main(["--backend", "haar", "--yes"])) == 0
+    assert len(CountingApp.built) == 1
+    assert not (tmp_path / "home" / "consent.json").exists()
+
+
+def test_stored_consent_is_honoured(tmp_path):
+    from narrative_engine.consent import record_consent
+
+    CountingApp.built.clear()
+    with Swap(CountingApp):
+
+        def run():
+            record_consent()
+            return entry.main(["--backend", "haar"])
+
+        assert with_home(tmp_path, run) == 0
+    assert len(CountingApp.built) == 1
+
+
+def test_no_consent_is_asked_when_no_camera_is_used(tmp_path):
+    video = tmp_path / "v.avi"
+    write_video(video, frames=5)
+    code = with_home(
+        tmp_path,
+        lambda: entry.main(
+            ["--backend", "haar", "--video", str(video), "--headless", "--no-calibration"]
+        ),
+    )
+    assert code == 0  # a recording needs no webcam, so no notice and no prompt
+
+
+def test_forget_consent_flag_deletes_the_record_and_exits(tmp_path, capsys):
+    from narrative_engine.consent import has_consent, record_consent
+
+    def run():
+        record_consent()
+        assert has_consent()
+        code = entry.main(["--forget-consent"])
+        return code, has_consent()
+
+    code, still = with_home(tmp_path, run)
+    assert code == 0 and still is False
+    assert "Consent forgotten" in capsys.readouterr().out
+    assert with_home(tmp_path, lambda: entry.main(["--forget-consent"])) == 0
+    assert "No stored consent" in capsys.readouterr().out

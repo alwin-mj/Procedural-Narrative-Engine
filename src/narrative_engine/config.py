@@ -85,6 +85,11 @@ class Config:
     seed: Optional[int] = None  # seeds the random baseline mode (reproducible runs)
     replay: Optional[Path] = None  # re-run the director on a recorded telemetry session
 
+    # --- privacy and demo ---
+    accept_notice: bool = False  # accept the privacy notice for this run only
+    forget_consent: bool = False  # delete the stored consent and exit
+    record: Optional[Path] = None  # save the window (with webcam preview) to this video file
+
     # --- misc ---
     log_level: str = "INFO"
 
@@ -129,6 +134,8 @@ class Config:
             raise ValueError("max_frames must be >= 1")
         if self.headless and self.video is None and self.replay is None and self.max_frames is None:
             raise ValueError("--headless without --video or --replay needs --max-frames")
+        if self.record is not None and self.headless:
+            raise ValueError("--record saves the window, so it cannot be combined with --headless")
         if self.telemetry_hz < 0:
             raise ValueError("telemetry_hz must be >= 0")
         if self.participant and not all(c.isalnum() or c in "_-" for c in self.participant):
@@ -263,6 +270,25 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="re-run the director on a telemetry log (no camera, implies --headless)",
     )
+    p.add_argument(
+        "--yes",
+        "--accept-privacy-notice",
+        dest="accept_notice",
+        action="store_true",
+        help="accept the privacy notice for this run (nothing is remembered)",
+    )
+    p.add_argument(
+        "--forget-consent",
+        action="store_true",
+        help="delete the remembered privacy consent and exit",
+    )
+    p.add_argument(
+        "--record",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="save the window, including your webcam preview, to FILE (.mp4 or .avi)",
+    )
     p.add_argument("--log-level", choices=LOG_LEVELS, default=d.log_level, help="log verbosity")
     return p
 
@@ -284,6 +310,9 @@ def config_from_args(argv: Optional[Sequence[str]] = None) -> Config:
         calibrate_on_start=not a.no_calibration,
         mood_bias=a.mood_bias,
         director_mode=a.mode,
+        accept_notice=a.accept_notice,
+        forget_consent=a.forget_consent,
+        record=a.record,
         telemetry=a.telemetry,
         telemetry_hz=a.telemetry_hz,
         participant=a.participant,

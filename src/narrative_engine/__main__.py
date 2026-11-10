@@ -9,7 +9,13 @@ from typing import Optional, Sequence
 
 from .app import App
 from .config import Config, config_from_args
+from .consent import consent_file, ensure_consent, forget_consent
 from .director import StoryError
+
+
+def uses_camera(cfg: Config) -> bool:
+    """True when the webcam will be opened (not for video files or telemetry replays)."""
+    return cfg.video is None and cfg.replay is None
 
 
 def missing_input(cfg: Config) -> Optional[str]:
@@ -38,9 +44,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Invalid configuration: {exc}", file=sys.stderr)
         return 2
 
+    if cfg.forget_consent:
+        removed = forget_consent()
+        print("Consent forgotten." if removed else "No stored consent to forget.")
+        print(f"(checked {consent_file()})")
+        return 0
+
     problem = missing_input(cfg)
     if problem:
         print(f"error: {problem}", file=sys.stderr)
+        return 2
+
+    if uses_camera(cfg) and not ensure_consent(cfg.accept_notice):
         return 2
 
     logging.basicConfig(

@@ -6,6 +6,7 @@
     narrative-eval benchmark    per-stage latency, FPS, CPU, memory, install size per backend
     narrative-eval llm          time-to-first-token / total time / fallback rate for the LLM
     narrative-eval counterfactual   replay one recorded session under adaptive/fixed/random
+    narrative-eval gif          turn a --record video into a README-sized GIF
     narrative-eval study-plan   counterbalanced run order and commands for a user study
     narrative-eval study-analyze    statistics and charts from the response sheet
 
@@ -942,6 +943,21 @@ def cmd_study_analyze(a: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------- demo GIF
+def cmd_gif(a: argparse.Namespace) -> int:
+    from .demo import video_to_gif
+
+    require_file(Path(a.video), "recording")
+    res = video_to_gif(Path(a.video), Path(a.out), a.fps, a.width, a.max_seconds)
+    print(
+        f"Wrote {a.out}: {res['frames']} frames, {res['seconds']} s, {res['width']} px wide, "
+        f"{res['size_mb']} MB"
+    )
+    if res["size_mb"] > 10:
+        print("That is large for a README. Try --width 480, --fps 6 or a shorter --max-seconds.")
+    return 0
+
+
 # ---------------------------------------------------------------------- CLI
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -1013,6 +1029,14 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--seed", type=int, default=1)
     c.add_argument("--interval", type=float, default=3.5)
     c.set_defaults(func=cmd_counterfactual)
+
+    c = sub.add_parser("gif", help="turn a --record video into a README-sized GIF")
+    c.add_argument("video", help="a video made with narrative-engine --record")
+    c.add_argument("--out", default="docs/demo.gif")
+    c.add_argument("--fps", type=float, default=8.0)
+    c.add_argument("--width", type=int, default=560)
+    c.add_argument("--max-seconds", type=float, default=30.0)
+    c.set_defaults(func=cmd_gif)
 
     c = sub.add_parser("study-plan", help="counterbalanced run order and commands")
     c.add_argument("--participants", type=int, required=True)

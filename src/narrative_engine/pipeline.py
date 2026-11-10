@@ -162,6 +162,21 @@ class ReconnectingSource:
                 log.debug("reopen failed: %s", exc)
         return None
 
+    def reopen_now(self) -> bool:
+        """Open the device again right away (used when the user switches the camera back on)."""
+        try:
+            ok = bool(self.source.reopen())
+        except Exception as exc:
+            log.debug("reopen failed: %s", exc)
+            ok = False
+        self._fails = 0
+        self.connected = ok
+        if ok:
+            log.info("Camera turned back on")
+        else:
+            self._last_try = self._clock()  # the normal retry logic takes over from here
+        return ok
+
     def release(self) -> None:
         try:
             self.source.release()
@@ -288,10 +303,24 @@ class FrameGrabber:
         self._id = 0
         self._captured_at = 0.0
         self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._released = False
         self._thread = threading.Thread(target=self._run, name="grabber", daemon=True)
 
     def start(self) -> None:
         self._thread.start()
+
+    def pause(self) -> None:
+        """Release the camera device and stop delivering frames."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Reopen the camera and carry on."""
+        self._paused.clear()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
 
     def latest(self) -> Tuple[Optional[Frame], int, float]:
         with self._lock:
@@ -316,6 +345,17 @@ class FrameGrabber:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            if self._paused.is_set():
+                if not self._released:  # switch the camera off for real, not just hide it
+                    self.source.release()
+                    self._released = True
+                    with self._lock:
+                        self._frame = None
+                self._stop.wait(0.05)
+                continue
+            if self._released:
+                self.source.reopen_now()
+                self._released = False
             frame = self.source.read()
             if frame is None:
                 if self.source.ended:
@@ -358,6 +398,11 @@ class PerceptionWorker:
     def latest(self) -> Optional[PerceptionResult]:
         with self._lock:
             return self._result
+
+    def clear(self) -> None:
+        """Forget the last result (so nothing from before a camera pause is shown)."""
+        with self._lock:
+            self._result = None
 
     @property
     def alive(self) -> bool:
@@ -421,6 +466,17 @@ class Pipeline:
     def start(self) -> None:
         self.grabber.start()
         self.worker.start()
+
+    def pause(self) -> None:
+        self.grabber.pause()
+
+    def resume(self) -> None:
+        self.worker.clear()
+        self.grabber.resume()
+
+    @property
+    def paused(self) -> bool:
+        return self.grabber.paused
 
     def frame(self) -> Optional[Frame]:
         return self.grabber.latest()[0]

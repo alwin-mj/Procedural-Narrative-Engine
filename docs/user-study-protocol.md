@@ -28,6 +28,9 @@ analysis are fixed in advance.
 ## Materials
 
 - A laptop with a webcam, the same machine and the same room lighting for everyone.
+- Run `narrative-engine` once yourself beforehand and answer its privacy notice, so the program's own
+  prompt does not appear in the middle of a session. The notice is for you as the operator; participants
+  still get the consent text below, in person, before they sit down.
 - A seat about arm's length from the screen, face clearly visible.
 - `narrative-eval study-plan --participants N --out study` creates `study/plan.csv` (the exact
   command for every run) and a blank `study/responses.csv`.

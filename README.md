@@ -54,8 +54,9 @@ pip install -e ".[mediapipe]"        # recommended: fast CPU face tracking + ble
 narrative-engine                     # or: python -m narrative_engine
 ```
 
+The first time you use the webcam, a **privacy notice** is shown and the camera stays off until you agree.
 Press **S** to start (with MediaPipe you will be asked to hold a neutral face for 3 seconds), **C** to recalibrate,
-**SPACE** for the next scene, **Q** to quit.
+**X** to switch the camera off and on, **SPACE** for the next scene, **Q** to quit.
 
 ### Detector backends
 
@@ -243,6 +244,32 @@ facts and is shown immediately; the LLM version replaces it when ready. Design p
 
 Nothing is sent anywhere except to your own Ollama server (`--llm-host`).
 
+## Privacy and control
+
+- **Consent first.** A privacy notice appears before the camera opens; saying yes is remembered on that
+  computer. `--yes` accepts for one run only, `--forget-consent` deletes the remembered choice. Runs that use a
+  video file or a replay open no camera and ask nothing.
+- **Always visible.** A red **CAMERA ON** indicator stays on screen, even in the blind study mode.
+- **One key to stop.** Press **X** to switch the camera off: the device is released (its light goes out), the
+  story pauses, and **X** again resumes.
+- **Nothing stored by default.** No video or image is saved or sent while you play. Saving anything (telemetry,
+  `collect` pictures, `--record`) needs an explicit option. Details, limits and responsible-use rules:
+  [docs/ethics.md](docs/ethics.md).
+
+## Make a demo GIF
+
+A short GIF at the top of the README is the single most effective thing on a project page.
+
+```bash
+narrative-engine --record docs/demo.mp4            # play for 30 to 40 seconds, then press Q
+narrative-eval gif docs/demo.mp4 --out docs/demo.gif
+```
+
+Then uncomment the `<img src="docs/demo.gif">` line near the top of this README. The recording includes your
+webcam preview, so only share it if you are happy for your face to be shown. If the GIF is over about 10 MB,
+use `--width 480 --fps 6` or a shorter `--max-seconds`. (GIF conversion needs Pillow, which comes with
+`pip install -e ".[dev]"` or `pip install pillow`.)
+
 ## Evaluation and user study
 
 Tools for measuring the system instead of guessing (`narrative-eval`). They only ever measure data you
@@ -288,6 +315,8 @@ small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md
 │   │   ├── smoothing.py     rolling average, EMA, hysteresis gate
 │   │   └── motion.py        "walking" detection (face movement or frame difference)
 │   ├── pipeline.py          frame sources, capture + perception threads, metrics, degradation
+│   ├── consent.py           privacy notice and remembered consent
+│   ├── demo.py              --record video to README GIF
 │   ├── telemetry.py         JSONL session logs, session reading and replay
 │   ├── evaluation.py        confusion matrices, flicker, reaction latency, statistics, SVG charts
 │   ├── study.py             study plan (counterbalancing), response checks, paired analysis
@@ -305,7 +334,7 @@ small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md
 │   └── data/stories/arin_adventure.json
 ├── scripts/bench_pipeline.py
 ├── tests/
-└── docs/                    evaluation.md (template), user-study-protocol.md, eval/ (your results)
+└── docs/                    ethics.md, evaluation.md (template), user-study-protocol.md, eval/
 ```
 
 ## Command-line options
@@ -322,6 +351,9 @@ small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md
 | `--interval S` | `3.5` | seconds between automatic scene changes |
 | `--min-confidence X` | `0.25` | confidence needed to advance |
 | `--motion-threshold X` | `0.03` (`face`) / `7.0` (`frame`) | walking sensitivity |
+| `--yes` | off | accept the privacy notice for this run (nothing remembered) |
+| `--forget-consent` | off | delete the remembered privacy consent and exit |
+| `--record FILE` | off | save the window, including your webcam preview, to a video (`.mp4`/`.avi`) |
 | `--telemetry [DIR]` | off (`logs/`) | write a JSONL session log (no video, ever) |
 | `--telemetry-hz X` | `15` | max logged readings per second (0 = every reading) |
 | `--participant ID` | none | anonymous id stored in the log and report |
@@ -444,6 +476,8 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 
 ## Limitations and privacy
 
+See [docs/ethics.md](docs/ethics.md) for the full privacy, limits and responsible-use statement.
+
 - All processing is **local**. While you play, no video or images are stored or transmitted. The only network
   access is the one-time MediaPipe model download (skippable with `--mp-model`).
 - Optional `--telemetry` logs contain only labels, numbers and timings. The one exception to "no images" is
@@ -475,6 +509,8 @@ Run `pre-commit autoupdate` now and then to refresh the hook versions.
 - [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
 - [x] Headless / video replay with a JSON run report
 - [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.10 to 3.12), pre-commit
+- [x] Privacy and control: consent notice, camera indicator, camera-off key, ethics document
+- [x] Demo recording (`--record`) and GIF converter
 - [x] Evaluation tooling: telemetry + replay, per-stage benchmark, classifier and flicker evaluation, study plan and analysis
 - [ ] **Run the evaluation and fill in [docs/evaluation.md](docs/evaluation.md) with real measurements**
 

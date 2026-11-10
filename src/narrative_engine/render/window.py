@@ -203,6 +203,23 @@ class GameWindow:
                 canvas, line, (x, y + i * 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (215, 215, 215), 1
             )
 
+    def _draw_camera_indicator(self, canvas: np.ndarray, on: bool) -> None:
+        """Red dot + "CAMERA ON" (or grey "CAMERA OFF"). Always drawn, even in study mode."""
+        label = "CAMERA ON" if on else "CAMERA OFF"
+        colour = (0, 0, 230) if on else (150, 150, 150)  # BGR
+        x, y = self.w // 2 - 60, 24
+        cv2.circle(canvas, (x, y - 5), 6, colour, -1)
+        cv2.putText(
+            canvas,
+            label,
+            (x + 14, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
     def _draw_story_box(self, canvas: np.ndarray, story_text: str) -> Tuple[np.ndarray, int]:
         """Draw the text box; returns the canvas and the box's top edge (y)."""
         lines = wrap_text(story_text, 48)
@@ -242,6 +259,7 @@ class GameWindow:
         director_note: str = "",
         stats: str = "",
         debug: bool = True,
+        camera_on: bool = True,
     ) -> np.ndarray:
         canvas = self._background(emo)
         self._draw_particles(canvas, emo)
@@ -252,6 +270,7 @@ class GameWindow:
 
         if history:
             self._draw_history(canvas, history)
+        self._draw_camera_indicator(canvas, camera_on)
         canvas, box_top = self._draw_story_box(canvas, story_text)
         cv2.putText(
             canvas,
@@ -271,7 +290,7 @@ class GameWindow:
         )
         cv2.putText(
             canvas,
-            "S:start  C:calibrate  SPACE:next  Q:quit",
+            "S:start  C:calibrate  X:camera  SPACE:next  Q:quit",
             (web_x, status_y + 26),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
