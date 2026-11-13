@@ -1,4 +1,4 @@
 # Core runtime dependencies (enough to run with the Haar smile fallback).
 # Tested with opencv-python 4.13 and numpy 2.4 on Python 3.12.
-opencv-python>=4.8,<5
+opencv-python>=4.8,<6
 numpy>=1.24
