@@ -346,7 +346,7 @@ small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md
 | `--mp-model PATH` | cached download | local `face_landmarker.task` (offline use) |
 | `--no-calibration` | off | skip the neutral-face calibration on start |
 | `--motion-mode` | `face` | `face` (face-box movement) or `frame` (whole-frame difference) |
-| `--story PATH` | bundled | path to a story JSON file |
+| `--story PATH-OR-NAME` | `arin_adventure` | a story JSON file, or the name of a bundled story |
 | `--sprites DIR` | none | folder of PNG frames to replace the default orb |
 | `--interval S` | `3.5` | seconds between automatic scene changes |
 | `--min-confidence X` | `0.25` | confidence needed to advance |
@@ -377,15 +377,29 @@ small-sample test: see [docs/user-study-protocol.md](docs/user-study-protocol.md
 
 Defaults live in `src/narrative_engine/config.py`.
 
+## Included stories
+
+| Name | Shape | Run it |
+|---|---|---|
+| `arin_adventure` (default) | 10 scenes, branching, 4 endings, flags and relationships | `narrative-engine` |
+| `last_train` | 8 scenes, a rainy night at a railway station, 4 endings | `narrative-engine --story last_train` |
+| `starter` | 3 scenes: the smallest story that uses every feature, a template to copy | `narrative-engine --story starter` |
+
+`narrative-story list` shows them. The engine is not tied to one story: a new one is just a JSON file.
+
 ## Writing your own story
 
-Stories are JSON. Copy `src/narrative_engine/data/stories/arin_adventure.json`, edit it, then check it:
+Stories are JSON. Copy `src/narrative_engine/data/stories/starter.json`, edit it, then check it:
 
 ```bash
-narrative-story check my_story.json      # validates and prints a summary
-narrative-story mermaid my_story.json    # draws the graph
-narrative-engine --story my_story.json
+narrative-story check my_story.json --strict   # validates, then lints (warnings fail with --strict)
+narrative-story mermaid my_story.json          # draws the graph
+narrative-engine --story my_story.json         # a file path, or the name of a bundled story
 ```
+
+The linter catches mistakes that are legal but almost certainly unintended: a flag that is checked but never
+set, state that is set but never used, a `visited` that names a scene that does not exist, or a scene whose
+four mood lines are identical (so it cannot adapt).
 
 ```json
 {
@@ -509,10 +523,21 @@ See [docs/ethics.md](docs/ethics.md) for the full privacy, limits and responsibl
 - [x] Graceful degradation (stale results, no face, camera loss) and clean shutdown
 - [x] Headless / video replay with a JSON run report
 - [x] Test suite with coverage gate, GitHub Actions CI (lint + Python 3.10 to 3.12), pre-commit
+- [x] Story packs, a story linter and name-based story selection; architecture, changelog, contributing guide,
+  release workflow
 - [x] Privacy and control: consent notice, camera indicator, camera-off key, ethics document
 - [x] Demo recording (`--record`) and GIF converter
 - [x] Evaluation tooling: telemetry + replay, per-stage benchmark, classifier and flicker evaluation, study plan and analysis
 - [ ] **Run the evaluation and fill in [docs/evaluation.md](docs/evaluation.md) with real measurements**
+
+## More documentation
+
+[Architecture and design decisions](docs/architecture.md) ·
+[Ethics and privacy](docs/ethics.md) ·
+[Evaluation](docs/evaluation.md) ·
+[User study protocol](docs/user-study-protocol.md) ·
+[Changelog](CHANGELOG.md) ·
+[Contributing](CONTRIBUTING.md)
 
 ## Team
 

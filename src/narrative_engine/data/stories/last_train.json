@@ -1,0 +1,249 @@
+{
+  "title": "The Last Train",
+  "protagonist": "Mira",
+  "start": "platform",
+  "scenes": [
+    {
+      "id": "platform",
+      "location": "rain-soaked platform",
+      "tension": 0.15,
+      "variants": {
+        "neutral": "Mira reaches the empty platform as rain drums on the tin roof; the departure board says the last train leaves in an hour.",
+        "happy": "Mira hops over a puddle onto the platform, laughing at how loud the rain is on the tin roof; the last train is still an hour away.",
+        "uplift": "Mira's heart races as she reaches the platform; the board glows through the rain and the last train leaves in just an hour.",
+        "sad": "Mira stands alone on the platform, rain streaming off the roof, watching the board count down the last hour before the final train."
+      },
+      "next": [
+        {
+          "to": "waiting_room",
+          "when": {
+            "valence": "<-0.15"
+          }
+        },
+        {
+          "to": "ticket_office"
+        }
+      ]
+    },
+    {
+      "id": "ticket_office",
+      "location": "ticket office",
+      "tension": 0.25,
+      "variants": {
+        "neutral": "A sleepy clerk slides a ticket under the glass without looking up; the office smells of old paper and coffee.",
+        "happy": "The clerk winks and slides Mira a ticket along with a paper cup of coffee, still warm.",
+        "uplift": "The clerk startles awake, then grins and rushes the ticket through the glass as if the whole station were running late.",
+        "sad": "The clerk hands over the ticket with a tired nod; neither of them says anything, and the clock ticks loudly."
+      },
+      "effects": [
+        {
+          "when": {
+            "mood": "happy"
+          },
+          "set_flags": [
+            "ticket_luck"
+          ]
+        }
+      ],
+      "next": [
+        {
+          "to": "waiting_room"
+        },
+        {
+          "to": "footbridge",
+          "when": {
+            "arousal": ">=0.3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiting_room",
+      "location": "waiting room",
+      "tension": 0.25,
+      "variants": {
+        "neutral": "In the waiting room an old woman pours tea from a dented thermos and offers the spare cup to Mira.",
+        "happy": "The old woman beams and presses a steaming cup into Mira's hands; they trade silly stories until the cup is empty.",
+        "uplift": "The old woman's tales of past storms make Mira lean in, wide-eyed, forgetting the cold entirely.",
+        "sad": "The old woman pours tea and says nothing; the quiet is gentle, and Mira's shoulders slowly relax."
+      },
+      "effects": [
+        {
+          "when": {
+            "mood": [
+              "happy",
+              "sad"
+            ]
+          },
+          "set_flags": [
+            "tea"
+          ],
+          "relations": {
+            "old_woman": 1
+          }
+        }
+      ],
+      "next": [
+        {
+          "to": "footbridge"
+        },
+        {
+          "to": "lost_property"
+        }
+      ]
+    },
+    {
+      "id": "lost_property",
+      "location": "lost property cage",
+      "tension": 0.4,
+      "variants": {
+        "neutral": "Behind a wire cage, shelves of forgotten umbrellas and suitcases wait; one small brass key lies on the counter.",
+        "happy": "Mira finds a brass key tucked inside an umbrella and giggles at the thought of what it might open.",
+        "uplift": "A brass key gleams among the lost things, and Mira's pulse jumps; surely it opens something important.",
+        "sad": "Among the forgotten umbrellas lies a lonely brass key; Mira turns it over, wondering who lost it."
+      },
+      "effects": [
+        {
+          "when": {
+            "mood": [
+              "happy",
+              "uplift"
+            ]
+          },
+          "set_flags": [
+            "brass_key"
+          ]
+        }
+      ],
+      "next": [
+        {
+          "to": "signal_room"
+        }
+      ]
+    },
+    {
+      "id": "footbridge",
+      "location": "iron footbridge",
+      "tension": 0.55,
+      "variants": {
+        "neutral": "On the iron footbridge the wind pulls at Mira's coat; below, the rails shine like wet ribbons in the dark.",
+        "happy": "Mira grins into the wind on the footbridge, the rails below shining like ribbons she could dance along.",
+        "uplift": "The wind whips across the footbridge and Mira feels alive, the whole dark station spread out beneath her.",
+        "sad": "Mira holds the cold rail of the footbridge and watches the rails vanish into the dark, small and quiet."
+      },
+      "callbacks": [
+        {
+          "if": {
+            "flag": "tea"
+          },
+          "text": "The tea's warmth lingers in her hands against the wind."
+        }
+      ],
+      "next": [
+        {
+          "to": "signal_room"
+        },
+        {
+          "to": "storm_platform"
+        }
+      ]
+    },
+    {
+      "id": "signal_room",
+      "location": "signal room",
+      "tension": 0.6,
+      "variants": {
+        "neutral": "The signal room hums with old relays and a cage of heavy levers; a faded sign says the points must be set before the train arrives.",
+        "happy": "Mira pats the levers like old friends; the whole signal room hums as if it were glad of company.",
+        "uplift": "Relays click and the levers shudder; Mira knows the points must be set before the train comes, and time is short.",
+        "sad": "The signal room is cold and humming; Mira reads the faded sign and feels how much depends on a few heavy levers."
+      },
+      "callbacks": [
+        {
+          "if": {
+            "flag": "brass_key"
+          },
+          "text": "The brass key turns in the lever cage as though it had always belonged there."
+        }
+      ],
+      "next": [
+        {
+          "to": "storm_platform"
+        },
+        {
+          "to": "train"
+        }
+      ]
+    },
+    {
+      "id": "storm_platform",
+      "location": "storm-lashed platform",
+      "tension": 0.85,
+      "variants": {
+        "neutral": "A storm slams the platform; the lamps swing wildly and Mira shields her face as she crosses to the waiting rails.",
+        "happy": "Rain hammers down and Mira whoops into the storm, soaked and delighted as the lamps swing overhead.",
+        "uplift": "Lightning cracks above the station and Mira runs the length of the platform, heart pounding, toward the distant headlight.",
+        "sad": "The storm drives everyone indoors; Mira walks on alone, collar up, steady in the noise toward the rails."
+      },
+      "next": [
+        {
+          "to": "train"
+        }
+      ]
+    },
+    {
+      "id": "train",
+      "location": "last train",
+      "tension": 0.7,
+      "variants": {
+        "neutral": "The last train sighs into the station, its windows glowing gold; Mira climbs aboard and the doors close behind her.",
+        "happy": "The last train glides in like a lit-up lantern and Mira bounds aboard, smiling as the doors seal out the rain.",
+        "uplift": "Brakes shriek and the last train bursts into the station; Mira leaps aboard just as the doors begin to close.",
+        "sad": "The last train arrives quietly, its windows warm; Mira steps aboard, finds a seat, and lets the doors close on the night."
+      },
+      "callbacks": [
+        {
+          "if": {
+            "flag": "ticket_luck"
+          },
+          "text": "The ticket from the clerk is still crisp in her pocket."
+        },
+        {
+          "if": {
+            "relation": {
+              "old_woman": ">=1"
+            }
+          },
+          "text": "Through the window she sees the old woman wave from the waiting room."
+        }
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "warm_departure",
+      "when": {
+        "avg_valence": ">=0.25"
+      },
+      "text": "The train pulls out and Mira watches the station glow behind her, warmer than the night had any right to be; she will remember this one fondly."
+    },
+    {
+      "id": "adrenaline",
+      "when": {
+        "avg_arousal": ">=0.3"
+      },
+      "text": "Mira's pulse is still racing as the lights slide past; she grins at her reflection, already wondering what the next night train might hold."
+    },
+    {
+      "id": "quiet_ride",
+      "when": {
+        "avg_valence": "<=-0.1"
+      },
+      "text": "Mira rests her head against the cool window as the rain softens; the night was heavy, but the rhythm of the rails is steadying."
+    },
+    {
+      "id": "late_night",
+      "text": "The train hums into the dark and Mira settles in; the night was ordinary and strange in equal measure, and she is content to let it go."
+    }
+  ]
+}

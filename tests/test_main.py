@@ -66,7 +66,7 @@ def test_missing_files_are_reported_immediately_with_the_flag_name(tmp_path, cap
     cases = [
         (["--video", str(tmp_path / "session.mp4"), "--headless"], "--video: file not found"),
         (["--replay", str(tmp_path / "s.jsonl")], "--replay: file not found"),
-        (["--story", str(tmp_path / "s.json")], "--story: file not found"),
+        (["--story", str(tmp_path / "s.json")], "--story: story not found"),
         (["--mp-model", str(tmp_path / "m.task")], "--mp-model: file not found"),
         (["--sprites", str(tmp_path / "frames")], "--sprites: folder not found"),
     ]

@@ -43,7 +43,8 @@ from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from ..config import MOODS
 
-DEFAULT_STORY = Path(__file__).resolve().parent.parent / "data" / "stories" / "arin_adventure.json"
+STORY_DIR = Path(__file__).resolve().parent.parent / "data" / "stories"
+DEFAULT_STORY = STORY_DIR / "arin_adventure.json"
 
 _CMP = re.compile(r"^\s*(<=|>=|==|!=|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
 _OPS = {
@@ -398,6 +399,89 @@ def _parse_ending(raw: Any, i: int) -> Ending:
     return Ending(eid, str(raw["text"]), parse_condition(raw.get("when"), f"ending {eid!r}"))
 
 
+def bundled_stories() -> Dict[str, Path]:
+    """Stories that ship with the package, by name (the file name without ``.json``)."""
+    return {p.stem: p for p in sorted(STORY_DIR.glob("*.json"))}
+
+
+def resolve_story(path_or_name: Optional[Path] = None) -> Path:
+    """Turn a file path *or the name of a bundled story* into a path.
+
+    ``None`` means the default story. A real file always wins; otherwise a bare name such as
+    ``last_train`` selects the bundled story of that name.
+    """
+    if path_or_name is None:
+        return DEFAULT_STORY
+    path = Path(path_or_name)
+    if path.is_file():
+        return path
+    bundled = bundled_stories()
+    if len(path.parts) == 1 and path.stem in bundled and path.suffix in ("", ".json"):
+        return bundled[path.stem]
+    names = ", ".join(sorted(bundled))
+    raise StoryError(f"story not found: {path} (bundled stories: {names})")
+
+
 def load_story(path: Optional[Path] = None) -> StoryGraph:
-    """Load ``path`` or the bundled default story."""
-    return StoryGraph.from_file(path or DEFAULT_STORY)
+    """Load a story file, a bundled story by name, or the default story."""
+    return StoryGraph.from_file(resolve_story(path))
+
+
+def story_warnings(graph: StoryGraph) -> List[str]:
+    """Authoring mistakes that are legal but almost certainly unintended.
+
+    The story loader accepts these (they would not crash), so they are reported separately:
+    conditions that can never be true, state that is set but never used, and scenes whose four
+    mood variants are the same text.
+    """
+    set_flags: Dict[str, str] = {}
+    changed_relations: Dict[str, str] = {}
+    used_flags: Dict[str, str] = {}
+    used_relations: Dict[str, str] = {}
+    unknown_visits: List[Tuple[str, str]] = []
+
+    def scan(cond: Condition, where: str) -> None:
+        for key in ("flag", "not_flag"):
+            if key in cond.spec:
+                for f in _as_list(cond.spec[key]):
+                    used_flags.setdefault(f, where)
+        for key in ("visited", "not_visited"):
+            if key in cond.spec:
+                for v in _as_list(cond.spec[key]):
+                    if v not in graph.nodes:
+                        unknown_visits.append((v, where))
+        for name in cond.spec.get("relation") or {}:
+            used_relations.setdefault(name, where)
+
+    out: List[str] = []
+    for node in graph.nodes.values():
+        for effect in node.effects:
+            scan(effect.when, f"an effect in scene {node.id!r}")
+            for f in effect.set_flags:
+                set_flags.setdefault(f, node.id)
+            for name in effect.relations:
+                changed_relations.setdefault(name, node.id)
+        for cb in node.callbacks:
+            scan(cb.cond, f"a callback in scene {node.id!r}")
+        for edge in node.edges:
+            scan(edge.when, f"an edge {node.id!r} -> {edge.to!r}")
+        if len({t.strip().lower() for t in node.variants.values()}) == 1:
+            out.append(f"scene {node.id!r}: all four mood variants are identical (no adaptation)")
+    for ending in graph.endings:
+        scan(ending.when, f"ending {ending.id!r}")
+
+    for flag, where in used_flags.items():
+        if flag not in set_flags:
+            out.append(f"flag {flag!r} is checked in {where} but no scene ever sets it")
+    for flag, scene in set_flags.items():
+        if flag not in used_flags:
+            out.append(f"flag {flag!r} is set in scene {scene!r} but never checked")
+    for name, where in used_relations.items():
+        if name not in changed_relations:
+            out.append(f"relation {name!r} is checked in {where} but never changed")
+    for name, scene in changed_relations.items():
+        if name not in used_relations:
+            out.append(f"relation {name!r} is changed in scene {scene!r} but never checked")
+    for visited, where in unknown_visits:
+        out.append(f"'visited' names an unknown scene {visited!r} in {where}")
+    return sorted(out)

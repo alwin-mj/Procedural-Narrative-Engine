@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 from .app import App
 from .config import Config, config_from_args
 from .consent import consent_file, ensure_consent, forget_consent
-from .director import StoryError
+from .director import StoryError, resolve_story
 
 
 def uses_camera(cfg: Config) -> bool:
@@ -24,10 +24,14 @@ def missing_input(cfg: Config) -> Optional[str]:
     Checked before anything heavy is loaded, so a typo fails in a blink instead of after the
     face model has started up.
     """
+    if cfg.story_path is not None:
+        try:
+            resolve_story(cfg.story_path)  # a file, or the name of a bundled story
+        except StoryError as exc:
+            return f"--story: {exc}"
     for flag, path in (
         ("--video", cfg.video),
         ("--replay", cfg.replay),
-        ("--story", cfg.story_path),
         ("--mp-model", cfg.mediapipe_model),
     ):
         if path is not None and not Path(path).is_file():

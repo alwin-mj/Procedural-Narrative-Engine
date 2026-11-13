@@ -1,0 +1,87 @@
+{
+  "title": "Starter Story",
+  "protagonist": "Sam",
+  "start": "intro",
+  "scenes": [
+    {
+      "id": "intro",
+      "location": "a quiet street",
+      "tension": 0.2,
+      "variants": {
+        "neutral": "Sam steps onto a quiet street and looks for something to do.",
+        "happy": "Sam steps onto a sunny street, humming, ready for anything.",
+        "uplift": "Sam steps onto a buzzing street and feels the day crackling with possibility.",
+        "sad": "Sam steps onto a grey street and wonders where to begin."
+      },
+      "next": [
+        {
+          "to": "cafe"
+        },
+        {
+          "to": "park",
+          "when": {
+            "arousal": ">=0.3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cafe",
+      "location": "a corner cafe",
+      "tension": 0.3,
+      "variants": {
+        "neutral": "Sam finds a corner cafe and orders something warm.",
+        "happy": "Sam laughs with the barista over a perfectly foamy drink.",
+        "uplift": "Sam bursts into the cafe, drawn in by the smell of fresh bread.",
+        "sad": "Sam sits by the window of the cafe and watches the rain."
+      },
+      "effects": [
+        {
+          "when": {
+            "mood": "happy"
+          },
+          "set_flags": [
+            "good_coffee"
+          ]
+        }
+      ],
+      "next": [
+        {
+          "to": "park"
+        }
+      ]
+    },
+    {
+      "id": "park",
+      "location": "a small park",
+      "tension": 0.5,
+      "variants": {
+        "neutral": "Sam reaches a small park with a bench under an old tree.",
+        "happy": "Sam skips into the park, the whole place glowing in the afternoon light.",
+        "uplift": "Sam races into the park as the wind sends leaves spinning overhead.",
+        "sad": "Sam walks slowly into the park and sits on the bench under the old tree."
+      },
+      "callbacks": [
+        {
+          "if": {
+            "flag": "good_coffee"
+          },
+          "text": "The coffee from earlier still warms Sam's hands."
+        }
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "bright",
+      "when": {
+        "avg_valence": ">=0.25"
+      },
+      "text": "Sam heads home smiling; it turned out to be a good day after all."
+    },
+    {
+      "id": "calm",
+      "text": "Sam heads home at an easy pace, quietly content."
+    }
+  ]
+}

@@ -56,7 +56,7 @@ jobs:
       - name: Command-line smoke tests
         run: |
           narrative-engine --help
-          narrative-story check
+          narrative-story check --all --strict
           narrative-eval --help
           python -m narrative_engine --help
       - name: Upload coverage report

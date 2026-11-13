@@ -1,7 +1,9 @@
 """Validate a story file and draw its graph.
 
-narrative-story check my_story.json        # validate + print a summary
-narrative-story mermaid my_story.json      # print a Mermaid flowchart (renders on GitHub)
+narrative-story list                       # the stories that ship with the package
+narrative-story check my_story.json        # validate + lint (a bundled name works too)
+narrative-story check --all --strict       # every bundled story; warnings fail
+narrative-story mermaid last_train         # print a Mermaid flowchart (renders on GitHub)
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, List, Mapping, Optional, Sequence
 
-from .director import StoryError, StoryGraph, load_story
+from .director import StoryError, StoryGraph, bundled_stories, load_story, story_warnings
 
 
 def describe_condition(spec: Mapping[str, Any]) -> str:
@@ -47,28 +49,61 @@ def to_mermaid(graph: StoryGraph) -> str:
 
 def summary(graph: StoryGraph) -> str:
     conditional = sum(1 for n in graph.nodes.values() for e in n.edges if not e.when.always)
-    return "\n".join(
-        [
-            f"OK: {graph.title or 'untitled'}",
-            f"  scenes: {len(graph.nodes)} (start: {graph.start}, terminal: {graph.terminals})",
-            f"  routes: shortest {graph.shortest_path()} scenes, longest {graph.longest_path()}",
-            f"  conditional edges: {conditional}",
-            f"  endings: {[e.id for e in graph.endings]}",
-        ]
-    )
+    lines = [
+        f"OK: {graph.title or 'untitled'}",
+        f"  scenes: {len(graph.nodes)} (start: {graph.start}, terminal: {graph.terminals})",
+        f"  routes: shortest {graph.shortest_path()} scenes, longest {graph.longest_path()}",
+        f"  conditional edges: {conditional}",
+        f"  endings: {[e.id for e in graph.endings]}",
+    ]
+    warnings = story_warnings(graph)
+    lines += [f"  warning: {w}" for w in warnings]
+    return "\n".join(lines)
+
+
+def check_one(target: Optional[Path], strict: bool) -> int:
+    """Validate one story. Returns 0 if fine, 1 if invalid (or, with ``strict``, has warnings)."""
+    try:
+        graph = load_story(target)
+    except StoryError as exc:
+        print(f"INVALID: {exc}", file=sys.stderr)
+        return 1
+    print(summary(graph))
+    return 1 if strict and story_warnings(graph) else 0
+
+
+def list_stories() -> str:
+    rows = []
+    for name, path in bundled_stories().items():
+        g = StoryGraph.from_file(path)
+        rows.append(f"{name:16s} {g.title:20s} {len(g.nodes)} scenes, {len(g.endings)} endings")
+    return "\n".join(rows)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="narrative-story", description=__doc__.splitlines()[0])
-    p.add_argument("command", choices=("check", "mermaid"))
-    p.add_argument("file", type=Path, nargs="?", help="story JSON (default: bundled story)")
+    p.add_argument("command", choices=("check", "mermaid", "list"))
+    p.add_argument(
+        "file", type=Path, nargs="?", help="story JSON file or bundled story name (default: Arin)"
+    )
+    p.add_argument("--all", action="store_true", help="check: every bundled story")
+    p.add_argument("--strict", action="store_true", help="check: warnings count as failures")
     args = p.parse_args(argv)
+
+    if args.command == "list":
+        print(list_stories())
+        return 0
+    if args.command == "check" and args.all:
+        codes = [check_one(Path(name), args.strict) for name in bundled_stories()]
+        return 1 if any(codes) else 0
+    if args.command == "check":
+        return check_one(args.file, args.strict)
     try:
         graph = load_story(args.file)
     except StoryError as exc:
         print(f"INVALID: {exc}", file=sys.stderr)
         return 1
-    print(summary(graph) if args.command == "check" else to_mermaid(graph))
+    print(to_mermaid(graph))
     return 0
 
 
