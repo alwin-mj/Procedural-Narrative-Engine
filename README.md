@@ -2,8 +2,6 @@
 
 <img src="docs/banner.png" alt="Narrative Engine" width="100%"/>
 
-# Narrative Engine
-
 **A real-time story that reads your face through a webcam and adapts as you feel.**
 Smile and the world warms up. Look sad and it turns gentle. No controller, just your expression.
 
